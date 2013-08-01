@@ -578,7 +578,7 @@ angular.module('app')
             if (hasCover) {
                 return assetFilter(song.thumbnail, $scope.configuration.host.ip);
             } else {
-                return '/img/backgrounds/album.png';
+                return 'img/backgrounds/album.png';
             }
         }
 
@@ -645,7 +645,7 @@ angular.module('app')
                     }
 
                 }
-                return '/img/blank.gif';
+                return 'img/blank.gif';
             };
 
             $scope.getLabel = function (item) {
@@ -2049,7 +2049,7 @@ angular.module('filters.xbmc.asset', [])
                 port = port || 8080;
                 return 'http://' + host + ':' + port + '/image/' + encodeURIComponent(input);
             } else {
-                return '/img/blank.gif';
+                return 'img/blank.gif';
             }
         };
     });
@@ -2496,7 +2496,7 @@ angular.module("music/albums.tpl.html", []).run(["$templateCache", function($tem
     "            ng-class-odd=\"'odd'\">\n" +
     "            <img class=\"span3 cover\" src=\"{{album.thumbnail | asset:configuration.host.ip}}\"\n" +
     "                 ng-show=\"hasCover(album)\"/>\n" +
-    "            <img class=\"span3 cover unknow\" src=\"/img/blank.gif\"\n" +
+    "            <img class=\"span3 cover unknow\" src=\"img/blank.gif\"\n" +
     "                 ng-hide=\"hasCover(album)\"/>\n" +
     "\n" +
     "            <div class=\"span7\">\n" +
@@ -2524,7 +2524,7 @@ angular.module("music/artists.tpl.html", []).run(["$templateCache", function($te
     "            ng-class-odd=\"'odd'\">\n" +
     "            <img class=\"span3 cover\" src=\"{{artist.thumbnail | asset:configuration.host.ip}}\"\n" +
     "                 ng-show=\"hasCover(artist)\"/>\n" +
-    "            <img class=\"span3 cover unknow\" src=\"/img/blank.gif\" ng-hide=\"hasCover(artist)\"/>\n" +
+    "            <img class=\"span3 cover unknow\" src=\"img/blank.gif\" ng-hide=\"hasCover(artist)\"/>\n" +
     "\n" +
     "            <div class=\"span7\">\n" +
     "                <p>{{artist.label}}</p>\n" +
@@ -2578,7 +2578,7 @@ angular.module("music/songs.tpl.html", []).run(["$templateCache", function($temp
     "        <ul class=\"view songs\">\n" +
     "            <li class=\"row album\" ng-show=\"isFiltered()\">\n" +
     "                <div class=\"span4 thumb\">\n" +
-    "                    <img class=\"vinyl\" src=\"/img/backgrounds/vinyl.png\"/>\n" +
+    "                    <img class=\"vinyl\" src=\"img/backgrounds/vinyl.png\"/>\n" +
     "                    <img class=\"cover\" src=\"{{getCover(songs[0])}}\"/>\n" +
     "                </div>\n" +
     "                <div class=\"span8\">\n" +
@@ -2785,7 +2785,7 @@ angular.module("settings/wizard.tpl.html", []).run(["$templateCache", function($
   $templateCache.put("settings/wizard.tpl.html",
     "<form class=\"wizard\">\n" +
     "    <h1>\n" +
-    "        <img src=\"/img/backgrounds/computer-icon.png\" width=\"64\" height=\"64\"/>\n" +
+    "        <img src=\"img/backgrounds/computer-icon.png\" width=\"64\" height=\"64\"/>\n" +
     "        <div>Host wizard</div>\n" +
     "    </h1>\n" +
     "\n" +
