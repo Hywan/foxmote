@@ -460,7 +460,7 @@ angular.module("remote/remote.tpl.html", []).run(["$templateCache", function($te
     "        <div class=\"action direction\" ng-tap=\"xbmc.send('Input.Up')\">\n" +
     "            <i class=\"icon icon-chevron-up\"></i>\n" +
     "        </div>\n" +
-    "        <div class=\"action\"  ng-tap=\"setVolume(volume -1)\">\n" +
+    "        <div class=\"action\"  ng-tap=\"setVolume(volume +1)\">\n" +
     "            <i class=\"icon icon-volume-off\"><small>+</small></i>\n" +
     "        </div>\n" +
     "    </div>\n" +
@@ -482,7 +482,7 @@ angular.module("remote/remote.tpl.html", []).run(["$templateCache", function($te
     "        <div class=\"action direction\" ng-tap=\"xbmc.send('Input.Down')\">\n" +
     "            <i class=\"icon icon-chevron-down\"></i>\n" +
     "        </div>\n" +
-    "        <div class=\"action\" ng-tap=\"setVolume(volume +1)\">\n" +
+    "        <div class=\"action\" ng-tap=\"setVolume(volume -1)\">\n" +
     "            <i class=\"icon icon-volume-off\"><small>-</small></i>\n" +
     "        </div>\n" +
     "    </div>\n" +
