@@ -1,4 +1,4 @@
-/*! foxmote - v0.0.1 - 2013-08-01
+/*! foxmote - v0.0.1 - 2013-08-12
  * Copyright (c) 2013 Nicolas ABRIC;
  * Licensed MIT
  */
@@ -28,6 +28,7 @@ angular.module('app')
         function ($scope, $rootScope, $state, $location, $filter, xbmc) {
             $scope.$state = $state;
             var init = function () {
+                $scope.connected = false;
                 $scope.player = {
                     id: -1,
                     active: false,
@@ -78,13 +79,19 @@ angular.module('app')
                 $scope.$apply(function () {
                     $scope.player.seek.time++;
                     $scope.player.seek.percentage = $scope.player.seek.time / $scope.player.seek.totaltime * 100;
+                    var now = Date.now();
+                    if (now - $scope.player.seek.lastUpdate > 5000) {
+                        getProperties();
+                    } else {
+                        $scope.player.seek.lastUpdate = now;
+                    }
                 });
             };
 
             var getItem = function (player) {
                 $scope.player.id = player.playerid;
                 $scope.player.active = true;
-                $scope.player.item = xbmc.send('Player.GetItem', {
+                xbmc.send('Player.GetItem', {
                     'properties': ['title', 'artist', 'albumartist', 'genre',
                         'year', 'rating', 'album', 'track', 'duration', 'comment', 'lyrics',
                         'musicbrainztrackid', 'musicbrainzartistid', 'musicbrainzalbumid',
@@ -99,35 +106,41 @@ angular.module('app')
                         'channeltype', 'hidden', 'locked', 'channelnumber', 'starttime', 'endtime'],
                     'playerid': $scope.player.id
                 }, true, 'result.item').then(function (item) {
-                        xbmc.send('Player.GetProperties', {
-                            'properties': ['percentage', 'time', 'totaltime',
-                                'speed', 'playlistid',
-                                'currentsubtitle', 'subtitles',
-                                'audiostreams', 'currentaudiostream', 'type'],
-                            'playerid': $scope.player.id
-                        }, true, 'result').then(function (properties) {
-                                var timeFilter = $filter('time');
-                                $scope.player.audiostreams = properties.audiostreams;
-                                $scope.player.current = {
-                                    audiostream: properties.currentaudiostream,
-                                    subtitle: properties.currentsubtitle
-                                };
-                                $scope.player.seek = {
-                                    time: timeFilter(properties.time),
-                                    totaltime: timeFilter(properties.totaltime),
-                                    percentage: properties.percentage
-                                };
-                                $scope.player.speed = properties.speed;
-                                $scope.player.subtitles = properties.subtitles;
-                                $scope.player.type = properties.type;
+                        $scope.player.item = item;
+                        getProperties();
+                    });
+            };
 
-                                $scope.playlist = properties.playlistid;
-                                if (properties.speed === 1) {
-                                    window.clearInterval($scope.player.intervalId);
-                                    $scope.player.intervalId = window.setInterval(updateSeek, 1000);
-                                }
-                            });
-                        return item;
+            var getProperties = function () {
+                xbmc.send('Player.GetProperties', {
+                    'properties': ['percentage', 'time', 'totaltime',
+                        'speed', 'playlistid',
+                        'currentsubtitle', 'subtitles',
+                        'audiostreams', 'currentaudiostream', 'type'],
+                    'playerid': $scope.player.id
+                }, true, 'result').then(function (properties) {
+                        if (properties) {
+                            var timeFilter = $filter('time');
+                            $scope.player.audiostreams = properties.audiostreams;
+                            $scope.player.current = {
+                                audiostream: properties.currentaudiostream,
+                                subtitle: properties.currentsubtitle
+                            };
+                            $scope.player.seek = {
+                                time: timeFilter(properties.time),
+                                totaltime: timeFilter(properties.totaltime),
+                                percentage: properties.percentage
+                            };
+                            $scope.player.speed = properties.speed;
+                            $scope.player.subtitles = properties.subtitles;
+                            $scope.player.type = properties.type;
+
+                            $scope.playlist = properties.playlistid;
+                            if (properties.speed === 1) {
+                                window.clearInterval($scope.player.intervalId);
+                                $scope.player.intervalId = window.setInterval(updateSeek, 1000);
+                            }
+                        }
                     });
             };
 
@@ -143,7 +156,6 @@ angular.module('app')
 
             var onPlayerPropertyChanged = function (obj) {
                 var data = obj.params.data;
-                console.log(data);
             };
 
             var onPlayerStop = function (obj) {
@@ -163,43 +175,44 @@ angular.module('app')
 
             var onPlayerSpeedChanged = function (obj) {
                 var data = obj.params.data;
-                console.log(data);
-
             };
 
             var onPlaylistClear = function () {
                 $scope.playlist = -1;
             };
 
-            xbmc.register('Player.OnPause', onPlayerPause.bind(this));
-            xbmc.register('Player.OnPlay', onPlayerPlay.bind(this));
-            xbmc.register('Player.OnPropertyChanged', onPlayerPropertyChanged.bind(this));
-            xbmc.register('Player.OnStop', onPlayerStop.bind(this));
-            xbmc.register('Player.OnSeek', onPlayerSeek.bind(this));
-            xbmc.register('Playlist.OnClear', onPlaylistClear.bind(this));
+            xbmc.register('Player.OnPause', { fn: onPlayerPause, scope: this});
+            xbmc.register('Player.OnPlay', { fn: onPlayerPlay, scope: this});
+            xbmc.register('Player.OnPropertyChanged', { fn: onPlayerPropertyChanged, scope: this});
+            xbmc.register('Player.OnStop', { fn: onPlayerStop, scope: this});
+            xbmc.register('Player.OnSeek', { fn: onPlayerSeek, scope: this});
+            xbmc.register('Playlist.OnClear', { fn: onPlaylistClear, scope: this});
 
 
             var xbmchost = localStorage.getItem('xbmchost');
-            if (xbmchost !== null) {
-                $scope.configuration = JSON.parse(xbmchost);
-                $scope.xbmc.connect($scope.configuration.host.ip, $scope.configuration.host.port);
-            } else {
+            if (xbmchost === null) {
                 $scope.go('/settings');
-            }
-            var onLoad = function () {
-                xbmc.send('Player.GetActivePlayers', null, true, 'result').then(function (players) {
-                    if (players.length > 0) {
-                        getItem(players[0]);
-                    }
-                });
-
-            }.bind(this);
-            if (xbmc.isConnected()) {
-                onLoad();
             } else {
-                xbmc.register('Websocket.OnConnected', onLoad);
+                $scope.configuration = JSON.parse(xbmchost);
+                var onLoad = function () {
+                    $scope.connected = true;
+                    xbmc.send('Player.GetActivePlayers', null, true, 'result').then(function (players) {
+                        if (players.length > 0) {
+                            getItem(players[0]);
+                        }
+                    });
+                }
+                var onDisconnect = function () {
+                    $scope.connected = false;
+                };
+                if (xbmc.isConnected()) {
+                    onLoad();
+                } else {
+                    xbmc.register('Websocket.OnConnected', { fn: onLoad, scope: this});
+                    xbmc.register('Websocket.OnDisconnected', { fn: onDisconnect, scope: this});
+                    $scope.xbmc.connect($scope.configuration.host.ip, $scope.configuration.host.port);
+                }
             }
-
             var main = document.querySelector('div[role="main"]');
             var gestureDetector = new GestureDetector(main);
             gestureDetector.startDetecting();
@@ -338,11 +351,11 @@ angular.module('app')
                         return item;
                     });
 
-            }.bind(this);
+            };
             if ($scope.xbmc.isConnected()) {
                 onLoad();
             } else {
-                $scope.xbmc.register('Websocket.OnConnected', onLoad);
+                $scope.xbmc.register('Websocket.OnConnected', { fn : onLoad, scope : this});
             }
         }
     ]);
@@ -375,11 +388,11 @@ angular.module('app')
                         $scope.loading = false;
                         return movies;
                     });
-            }.bind(this);
+            };
             if ($scope.xbmc.isConnected()) {
                 onLoad();
             } else {
-                $scope.xbmc.register('Websocket.OnConnected', onLoad);
+                $scope.xbmc.register('Websocket.OnConnected', { fn : onLoad, scope : this});
             }
         }
     ]);
@@ -431,11 +444,11 @@ angular.module('app')
                     $scope.loading = false;
                     return albums;
                 });
-            }.bind(this);
+            };
             if ($scope.xbmc.isConnected()) {
                 onLoad();
             } else {
-                $scope.xbmc.register('Websocket.OnConnected', onLoad);
+                $scope.xbmc.register('Websocket.OnConnected', { fn : onLoad, scope : this});
             }
 
             $scope.hasCover = function (album) {
@@ -474,11 +487,11 @@ angular.module('app')
                         $scope.loading = false;
                         return artists;
                     });
-            }.bind(this);
+            };
             if ($scope.xbmc.isConnected()) {
                 onLoad();
             } else {
-                $scope.xbmc.register('Websocket.OnConnected', onLoad);
+                $scope.xbmc.register('Websocket.OnConnected', { fn : onLoad, scope : this});
             }
 
             $scope.hasCover = function (artist) {
@@ -493,11 +506,19 @@ angular.module('app')
             views: {
                 header: {templateUrl: 'layout/headers/basic.tpl.html'},
                 body: {
-                    templateUrl: 'music/musics.tpl.html'
+                    templateUrl: 'music/musics.tpl.html', controller : 'MusicsCtrl'
                 }
             }
         })
-    }])
+    }]).controller('MusicsCtrl', ['$scope',
+        function MusicsCtrl($scope) {
+            $scope.party = function() {
+                $scope.xbmc.send('Player.Open', {
+                    'item': {'file' : undefined}
+                });
+            }
+        }
+    ]);
 angular.module('app')
     .config(['$stateProvider', function ($stateProvider) {
         $stateProvider.state('filteredSongs', {
@@ -547,7 +568,7 @@ angular.module('app')
                 $scope.songs = songs;
             });
 
-        }.bind(this);
+        };
 
         var playlistAdd = function () {
             if ($scope.queue.length > 0) {
@@ -569,7 +590,7 @@ angular.module('app')
         if ($scope.xbmc.isConnected()) {
             onLoad();
         } else {
-            $scope.xbmc.register('Websocket.OnConnected', onLoad);
+            $scope.xbmc.register('Websocket.OnConnected', { fn : onLoad, scope : this});
         }
 
         $scope.getCover = function (song) {
@@ -628,25 +649,6 @@ angular.module('app')
                     label: 'Settings'
                 }
             ];
-            $scope.getThumb = function (art) {
-                var asset = $filter('asset');
-                if (art) {
-                    if (art['album.thumb']) {
-                        return  asset(art['album.thumb'], $scope.configuration.host.ip);
-                    }
-                    if (art['tvshow.poster']) {
-                        return  asset(art['tvshow.poster'], $scope.configuration.host.ip);
-                    }
-                    if (art.poster) {
-                        return  asset(art.poster, $scope.configuration.host.ip);
-                    }
-                    if (art.thumb) {
-                        return asset(art.thumb, $scope.configuration.host.ip);
-                    }
-
-                }
-                return 'img/blank.gif';
-            };
 
             $scope.getLabel = function (item) {
                 if (item) {
@@ -658,6 +660,17 @@ angular.module('app')
             $scope.go = function (path) {
                 $location.path(path);
                 $scope.toggleDrawer();
+            };
+
+            $scope.hasPoster = function (art) {
+                var result = false;
+                if (art) {
+                    if (art['album.thumb'] || art['tvshow.poster'] ||
+                        art.poster || art.thumb) {
+                        result =  true;
+                    }
+                }
+                return result;
             };
 
             $scope.isCurrent = function (hash) {
@@ -722,11 +735,11 @@ angular.module('app')
                         }
                     }
                 )
-            }.bind(this);
+            };
             if ($scope.xbmc.isConnected()) {
                 onLoad();
             } else {
-                $scope.xbmc.register('Websocket.OnConnected', onLoad);
+                $scope.xbmc.register('Websocket.OnConnected', { fn : onLoad, scope : this});
             }
 
             $scope.isTypeVideo = function () {
@@ -786,6 +799,79 @@ angular.module('app')
 
 angular.module('app')
     .config(['$stateProvider', function ($stateProvider) {
+        $stateProvider.state('playlist', {
+            url: '/now/playlist',
+            views: {
+                header: {templateUrl: 'layout/headers/basic.tpl.html'},
+                body: {
+                    templateUrl: 'now/playlist.tpl.html',
+                    controller: 'NowPlaylistCtrl'
+                }
+            }
+        });
+    }])
+    .controller('NowPlaylistCtrl', ['$scope',
+        function NowPlaylistCtrl($scope) {
+            $scope.loading = true;
+
+            var getItems = function () {
+                $scope.xbmc.send('Playlist.GetItems', {
+                    'playlistid': $scope.playlist,
+                    'properties': ['title', 'art', 'duration', 'runtime', 'thumbnail']}, true, 'result.items').then(function (items) {
+                        $scope.items = items;
+                        $scope.loading = false;
+                    });
+            }
+
+            var onLoad = function () {
+                if ($scope.playlist > -1) {
+                    getItems();
+                } else {
+                    $scope.go('/remote');
+                }
+            };
+            if ($scope.xbmc.isConnected()) {
+                onLoad();
+            } else {
+                $scope.xbmc.register('Websocket.OnConnected', { fn: onLoad, scope: this});
+            }
+
+            var onPlaylistAdd = function (obj) {
+                $scope.loading = true;
+                getItems();
+            }
+
+            var onPlaylistClear = function () {
+                $scope.go('/remote');
+            }
+
+            var onPlaylistRemove = function (obj) {
+                var data = obj.params.data;
+                if (!$scope.loading && $scope.playlist === data.playlistid && typeof $scope.items !== 'undefined') {
+                    $scope.items.splice(data.position);
+                }
+            }
+
+            $scope.xbmc.register('Playlist.OnAdd', { fn: onPlaylistAdd, scope: this});
+            $scope.xbmc.register('Playlist.OnClear', { fn: onPlaylistClear, scope: this});
+            $scope.xbmc.register('Playlist.OnRemove', { fn: onPlaylistRemove, scope: this});
+
+            $scope.isPlaying = function (id) {
+                return  $scope.player.item.id === id;
+            }
+
+            $scope.next = function (index) {
+                $scope.xbmc.send('Player.GoTo', {
+                    'playerid': $scope.player.id,
+                    'to': index
+                });
+            }
+        }
+
+    ]);
+
+angular.module('app')
+    .config(['$stateProvider', function ($stateProvider) {
         $stateProvider.state('remote', {
             url: '/',
             views: {
@@ -801,26 +887,21 @@ angular.module('app')
     .controller('RemoteCtrl', ['$scope', '$location',
         function RemoteCtrl($scope, $location) {
             var onLoad = function () {
-                $scope.volume = $scope.xbmc.send('Application.GetProperties', {
+                $scope.xbmc.send('Application.GetProperties', {
                     'properties': ['volume']
                 }, true, 'result.volume').then(function(volume) {
                     $scope.volume = volume;
                 });
-            }.bind(this);
+            };
             if ($scope.xbmc.isConnected()) {
                 onLoad();
             } else {
-                $scope.xbmc.register('Websocket.OnConnected', onLoad);
+                $scope.xbmc.register('Websocket.OnConnected', { fn : onLoad, scope : this});
             }
 
-            var onVolumeChanged = function (result) {
-                $scope.volume = result.params.data.volume;
-            };
-            $scope.xbmc.register('Application.OnVolumeChanged', onVolumeChanged);
-
             $scope.setVolume = function (volume) {
-                volume = Math.max(0, Math.min(volume, 100));
-                $scope.xbmc.send('Application.SetVolume', {'volume': volume});
+                $scope.volume = Math.max(0, Math.min(volume, 100));
+                $scope.xbmc.send('Application.SetVolume', {'volume': $scope.volume});
             }
         }]);
 angular.module('app')
@@ -869,11 +950,11 @@ angular.module('app')
                         return item;
                     });
 
-            }.bind(this);
+            };
             if ($scope.xbmc.isConnected()) {
                 onLoad();
             } else {
-                $scope.xbmc.register('Websocket.OnConnected', onLoad);
+                $scope.xbmc.register('Websocket.OnConnected', { fn : onLoad, scope : this});
             }
 
             $scope.play = function (episodeid) {
@@ -920,11 +1001,11 @@ angular.module('app')
                         $scope.loading = false;
                         return episodes;
                     });
-            }.bind(this);
+            };
             if ($scope.xbmc.isConnected()) {
                 onLoad();
             } else {
-                $scope.xbmc.register('Websocket.OnConnected', onLoad);
+                $scope.xbmc.register('Websocket.OnConnected', { fn : onLoad, scope : this});
             }
         }]);
 angular.module('app')
@@ -956,11 +1037,11 @@ angular.module('app')
                         $scope.loading = false;
                         return tvshows;
                     });
-            }.bind(this);
+            };
             if ($scope.xbmc.isConnected()) {
                 onLoad();
             } else {
-                $scope.xbmc.register('Websocket.OnConnected', onLoad);
+                $scope.xbmc.register('Websocket.OnConnected', { fn : onLoad, scope : this});
             }
         }]);
 angular.module('app')
@@ -999,11 +1080,11 @@ angular.module('app')
                         $scope.go('/tvshow/' + $scope.tvshowid + '/' + seasons[0].season);
                     }
                 });
-        }.bind(this);
+        };
         if ($scope.xbmc.isConnected()) {
             onLoad();
         } else {
-            $scope.xbmc.register('Websocket.OnConnected', onLoad);
+            $scope.xbmc.register('Websocket.OnConnected', { fn : onLoad, scope : this});
         }
     }])
 /* -*- Mode: Java; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*- /
@@ -2028,17 +2109,28 @@ angular.module('directives.tap', [])
         return function (scope, elm, attrs) {
             // if there is no touch available, we'll fall back to click
             if (isTouch) {
-                var tapping = false;
-                elm.bind('touchstart', function () {
-                    tapping = true;
+                var THRESHOLD = 5;
+                var start;
+                var  coordinates = function (t) {
+                    return Object.freeze({
+                        screenX: t.screenX,
+                        screenY: t.screenY,
+                        clientX: t.clientX,
+                        clientY: t.clientY
+                    });
+                }
+                elm.bind('touchstart', function (evt) {
+                    start = coordinates(evt.touches[0]);
                     elm.addClass('active');
                 });
-                // prevent firing when someone is f.e. dragging
-                elm.bind('touchmove', function () {
-                    tapping = false;
-                });
-                elm.bind('touchend', function () {
-                    tapping && scope.$apply(attrs.ngTap);
+
+                elm.bind('touchend', function (evt) {
+                    var end = coordinates(evt.changedTouches[0]);
+                    var tapping  = Math.abs(end.screenX - start.screenX)  < THRESHOLD &&
+                                   Math.abs(end.screenY - start.screenY)  < THRESHOLD;
+                    if(tapping) {
+                        scope.$apply(attrs.ngTap);
+                    }
                     elm.removeClass('active');
                 });
             }
@@ -2051,12 +2143,11 @@ angular.module('directives.tap', [])
     });
 angular.module('filters.xbmc.asset', [])
     .filter('asset', function () {
-        return function (input, host, port) {
-            if (input && host) {
-                port = port || 8080;
-                return 'http://' + host + ':' + port + '/image/' + encodeURIComponent(input);
-            } else {
-                return 'img/blank.gif';
+        return function (input, ip) {
+            if (input && ip) {
+                return 'http://' + ip + ':8080/image/' + encodeURIComponent(input);
+            }     else {
+                return '';
             }
         };
     });
@@ -2070,6 +2161,37 @@ angular.module('filters.xbmc.episode', [])
             } else {
                 return '';
             }
+        };
+    });
+angular.module('filters.xbmc.fallback', [])
+    .filter('fallback', function () {
+        return function (input, path) {
+            path = path || 'img/blank.gif';
+            if (input === '') {
+                return path;
+            }
+            return input;
+        };
+    });
+angular.module('filters.xbmc.thumb', [])
+    .filter('thumb', function () {
+        return function (input) {
+            var defaultValue = '';
+            if (input) {
+                if (input['album.thumb']) {
+                    return  input['album.thumb'];
+                }
+                if (input['tvshow.poster']) {
+                    return  input['tvshow.poster'];
+                }
+                if (input.poster) {
+                    return  input.poster;
+                }
+                if (input.thumb) {
+                    return input.thumb;
+                }
+            }
+            return defaultValue;
         };
     });
 angular.module('filters.xbmc.time', [])
@@ -2092,7 +2214,12 @@ angular.module('filters.xbmc.time', [])
 
         };
     });
-angular.module('filters.xbmc', ['filters.xbmc.asset', 'filters.xbmc.episode', 'filters.xbmc.time']);
+angular.module('filters.xbmc', [
+    'filters.xbmc.asset',
+    'filters.xbmc.episode',
+    'filters.xbmc.fallback',
+    'filters.xbmc.thumb',
+    'filters.xbmc.time']);
 "use strict";
 angular.module('services.xbmc.mock', [])
     .factory('xbmc', ['$rootScope', '$q', '$http', '$parse',
@@ -2150,28 +2277,27 @@ angular.module('services.websocket', [])
             return isWSConnected;
         }
 
-        factory.connect = function (url, callback) {
+        factory.connect = function (url, connectCallback, disconnectCallback) {
             ws = new WebSocket(url);
             ws.onopen = function () {
                 isWSConnected = true;
-                if (callback) {
-                    callback();
+                if (connectCallback) {
+                    connectCallback();
                 }
             };
 
             ws.onclose = function () {
                 isWSConnected = false;
-                console.log('Lost connection retry in 10 sec')
+                disconnectCallback();
                 window.setTimeout(function () {
-                    factory.connect(url, callback)
+                    factory.connect(url, connectCallback)
                 }.bind(this), 10000);
             };
 
             ws.onerror = function () {
                 isWSConnected = false;
-                console.log('Can t connect retry in 10 sec');
                 window.setTimeout(function () {
-                    factory.connect(url, callback)
+                    factory.connect(url, connectCallback)
                 }.bind(this), 10000);
             };
         };
@@ -2195,7 +2321,6 @@ angular.module('services.websocket', [])
         }
         return factory;
     })
-
 angular.module('services.xbmc', ['services.websocket'])
     .factory('xbmc', ['$rootScope', '$q', '$parse', 'websocket',
         function ($rootScope, $q, $parse, websocket) {
@@ -2230,13 +2355,21 @@ angular.module('services.xbmc', ['services.websocket'])
                 websocket.subscribe(onMessage.bind(this));
                 var onConnectedCallbacks = notifications['Websocket.OnConnected'] || [];
                 for (var i = 0; i < onConnectedCallbacks.length; i++) {
-                    onConnectedCallbacks[i]();
+                    var cb = onConnectedCallbacks[i];
+                    cb.fn.call(cb.scope);
+                }
+            };
+
+            function onDiconnected() {
+                var onDiscConnectedCallbacks = notifications['Websocket.OnDisconnected'] || [];
+                for (var i = 0; i < onDiscConnectedCallbacks.length; i++) {
+                    var cb = onDiscConnectedCallbacks[i];
+                    cb.fn.call(cb.scope);
                 }
             };
 
             function onMessage(event) {
                 if (event.data !== '') {
-                    console.log(event.data);
                     var data = JSON.parse(event.data);
                     if (callbacks.hasOwnProperty(data.id)) {
                         var cb = callbacks[data.id];
@@ -2249,7 +2382,8 @@ angular.module('services.xbmc', ['services.websocket'])
                         delete callbacks[data.id];
                     } else if (notifications[data.method] && notifications[data.method].length > 0) {
                         for (var i = 0; i < notifications[data.method].length; i++) {
-                            $rootScope.$apply(notifications[data.method][i](data));
+                            var cb = notifications[data.method][i];
+                            cb.fn.call(cb.scope, data);
                         }
                     }
                 }
@@ -2291,13 +2425,14 @@ angular.module('services.xbmc', ['services.websocket'])
             }
 
             factory.connect = function (url, port) {
-                websocket.connect('ws://' + url + ':' + port + '/jsonrpc', onConnected);
+                websocket.connect('ws://' + url + ':' + port + '/jsonrpc', onConnected, onDiconnected);
             }
+
 
             return factory;
         }
     ])
-angular.module('templates.app', ['layout/footers/basic.tpl.html', 'layout/footers/details.tpl.html', 'layout/footers/player.tpl.html', 'layout/headers/basic.tpl.html', 'layout/headers/searchable.tpl.html', 'movie/details.tpl.html', 'movie/list.tpl.html', 'music/albums.tpl.html', 'music/artists.tpl.html', 'music/musics.tpl.html', 'music/songs.tpl.html', 'navigation/navigation.tpl.html', 'now/playing.tpl.html', 'remote/remote.tpl.html', 'settings/wizard.tpl.html', 'tvshow/details.tpl.html', 'tvshow/episodes.tpl.html', 'tvshow/list.tpl.html', 'tvshow/seasons.tpl.html']);
+angular.module('templates.app', ['layout/footers/basic.tpl.html', 'layout/footers/details.tpl.html', 'layout/footers/player.tpl.html', 'layout/headers/basic.tpl.html', 'layout/headers/searchable.tpl.html', 'movie/details.tpl.html', 'movie/list.tpl.html', 'music/albums.tpl.html', 'music/artists.tpl.html', 'music/musics.tpl.html', 'music/songs.tpl.html', 'navigation/navigation.tpl.html', 'now/playing.tpl.html', 'now/playlist.tpl.html', 'remote/remote.tpl.html', 'settings/wizard.tpl.html', 'tvshow/details.tpl.html', 'tvshow/episodes.tpl.html', 'tvshow/list.tpl.html', 'tvshow/seasons.tpl.html']);
 
 angular.module("layout/footers/basic.tpl.html", []).run(["$templateCache", function($templateCache) {
   $templateCache.put("layout/footers/basic.tpl.html",
@@ -2336,7 +2471,7 @@ angular.module("layout/footers/details.tpl.html", []).run(["$templateCache", fun
     "        <div class=\"span3\" ng-tap=\"imdb(library.item.imdbnumber)\">\n" +
     "            <span class=\"imdb\">IMDb</span>\n" +
     "        </div>\n" +
-    "        <div class=\"span3\" ng-tap=\"play({'file': library.item..trailer})\">\n" +
+    "        <div class=\"span3\" ng-tap=\"play({'file': library.item.trailer})\">\n" +
     "            <i class=\"icon-film\"></i>\n" +
     "        </div>\n" +
     "        <div class=\"span3\" ng-tap=\"add({'movieid': library.item.movieid})\">\n" +
@@ -2386,10 +2521,10 @@ angular.module("layout/headers/basic.tpl.html", []).run(["$templateCache", funct
     "<a ng-tap=\"$parent.toggleDrawer()\"><i class=\"icon icon-reorder\"></i></a>\n" +
     "<h1>\n" +
     "    Foxmote\n" +
-    "    <i class=\"pull-right logo\"></i>\n" +
+    "    <i class=\"logo\"></i>\n" +
     "</h1>\n" +
-    "<h2 ng-class=\"{connected : $parent.isConnected(), disconnected : !$parent.isConnected()}\"\n" +
-    "    ng-switch on=\"$parent.isConnected()\">\n" +
+    "<h2 ng-class=\"{connected : connected, disconnected : !connected}\"\n" +
+    "    ng-switch on=\"connected\">\n" +
     "    <div ng-switch-when=\"true\">\n" +
     "        {{configuration.host.displayName}}\n" +
     "        <span class=\"pull-right\">{{configuration.host.ip}}</span>\n" +
@@ -2409,8 +2544,8 @@ angular.module("layout/headers/searchable.tpl.html", []).run(["$templateCache", 
     "        <button type=\"reset\" class=\"icon-remove\"></button>\n" +
     "    </form>\n" +
     "</h1>\n" +
-    "<h2 ng-class=\"{connected : $parent.isConnected(), disconnected : !$parent.isConnected()}\"\n" +
-    "    ng-switch on=\"$parent.isConnected()\">\n" +
+    "<h2 ng-class=\"{connected : connected, disconnected : !connected}\"\n" +
+    "    ng-switch on=\"connected\">\n" +
     "    <div ng-switch-when=\"true\">\n" +
     "        {{configuration.host.displayName}}\n" +
     "        <span class=\"pull-right\">{{configuration.host.ip}}</span>\n" +
@@ -2432,7 +2567,7 @@ angular.module("movie/details.tpl.html", []).run(["$templateCache", function($te
     "            </h1>\n" +
     "\n" +
     "            <div class=\"row\">\n" +
-    "                <img class=\"offset1 span5 poster\" src=\"{{library.item.thumbnail | asset:configuration.host.ip}}\"/>\n" +
+    "                <img class=\"offset1 span5 poster\" src=\"{{library.item.thumbnail | asset:configuration.host.ip | fallback:'img/backgrounds/low-contrast-256.png'}}\"/>\n" +
     "\n" +
     "                <div class=\"span6\">\n" +
     "                    <ul>\n" +
@@ -2621,9 +2756,9 @@ angular.module("navigation/navigation.tpl.html", []).run(["$templateCache", func
   $templateCache.put("navigation/navigation.tpl.html",
     "<section data-type=\"sidebar\">\n" +
     "    <header>\n" +
-    "        <h1>Medias</h1>\n" +
+    "        <h1>Library</h1>\n" +
     "    </header>\n" +
-    "    <nav>\n" +
+    "    <nav ng-class=\"{'active-player' : player.active, 'inactive-player': player.active}\">\n" +
     "        <ul>\n" +
     "            <li ng-repeat=\"item in medias\">\n" +
     "                <a ng-tap=\"go(item.hash)\" ng-class=\"isCurrent(item.hash)\">\n" +
@@ -2631,13 +2766,18 @@ angular.module("navigation/navigation.tpl.html", []).run(["$templateCache", func
     "                    {{item.label}}\n" +
     "                </a>\n" +
     "            </li>\n" +
-    "        </ul>\n" +
-    "    </nav>\n" +
-    "    <header>\n" +
-    "        <h1>Controls</h1>\n" +
-    "    </header>\n" +
-    "    <nav>\n" +
-    "        <ul>\n" +
+    "            <li  ng-show=\"player.active\">\n" +
+    "                <a  ng-tap=\"go('/now/playing')\" ng-class=\"isCurrent('/now/playing')\">\n" +
+    "                    <i class=\"icon-youtube-play\"></i>\n" +
+    "                    Now playing\n" +
+    "                </a>\n" +
+    "            </li>\n" +
+    "            <li  ng-show=\"player.active\">\n" +
+    "                <a  ng-tap=\"go('/now/playlist')\" ng-class=\"isCurrent('/now/playlist')\">\n" +
+    "                    <i class=\"icon-glass\"></i>\n" +
+    "                    Queue\n" +
+    "                </a>\n" +
+    "            </li>\n" +
     "            <li ng-repeat=\"item in controls\">\n" +
     "                <a ng-tap=\"go(item.hash)\" ng-class=\"isCurrent(item.hash)\">\n" +
     "                    <i class=\"{{item.icon}}\"></i>\n" +
@@ -2647,7 +2787,10 @@ angular.module("navigation/navigation.tpl.html", []).run(["$templateCache", func
     "        </ul>\n" +
     "    </nav>\n" +
     "    <div class=\"now playing\" ng-show=\"player.active\">\n" +
-    "        <img class=\"poster\" src=\"{{getThumb(player.item.art)}}\" ng-tap=\"go('/now/playing','none')\"/>\n" +
+    "        <img class=\"poster\" src=\"{{player.item.art | thumb | asset:configuration.host.ip}}\" ng-tap=\"go('/now/playing','none')\"\n" +
+    "             ng-show=\"hasPoster(player.item.art)\"/>\n" +
+    "        <img class=\"poster unknown\" src=\"img/blank.gif\" ng-tap=\"go('/now/playing')\"\n" +
+    "             ng-hide=\"hasPoster(player.item.art)\"/>\n" +
     "        <h1>{{getLabel(player.item)}}</h1>\n" +
     "        <footer>\n" +
     "            <div class=\"row actions\">\n" +
@@ -2738,6 +2881,30 @@ angular.module("now/playing.tpl.html", []).run(["$templateCache", function($temp
     "</form>");
 }]);
 
+angular.module("now/playlist.tpl.html", []).run(["$templateCache", function($templateCache) {
+  $templateCache.put("now/playlist.tpl.html",
+    "<div ng-switch on=\"loading\" ng-class=\"{loading : loading}\">\n" +
+    "    <div ng-switch-when=\"true\" class=\"icon-spinner icon-spin icon-large\"></div>\n" +
+    "    <div data-type=\"list\" ng-switch-when=\"false\">\n" +
+    "        <ul class=\"view songs\">\n" +
+    "            <li class=\"row \" ng-repeat=\"item in items\"\n" +
+    "                ng-class-odd=\"'odd'\"\n" +
+    "                ng-tap=\"next($index)\">\n" +
+    "                    <img class=\"span4 poster\"\n" +
+    "                         src=\"{{item.art | thumb | asset:configuration.host.ip | fallback:'img/backgrounds/low-contrast-128.png'}}\"/>\n" +
+    "                <div class=\"span8\">\n" +
+    "                    <p>{{item.label}}</p>\n" +
+    "                    <p ng-show=\"item.duration\">{{item.duration | time | date :'mm:ss'}}</p>\n" +
+    "                    <p ng-show=\"item.runtime\">{{item.runtime| time | date :'hh:mm:ss'}}</p>\n" +
+    "                    <img class=\"equalizer\" src=\"img/backgrounds/equalizer.gif\" ng-show=\"isPlaying(item.id)\"/>\n" +
+    "                </div>\n" +
+    "            </li>\n" +
+    "            <li ng-show=\"!items.length\" class=\"empty list\">No item here :'(</li>\n" +
+    "        </ul>\n" +
+    "    </div>\n" +
+    "</div>");
+}]);
+
 angular.module("remote/remote.tpl.html", []).run(["$templateCache", function($templateCache) {
   $templateCache.put("remote/remote.tpl.html",
     "<div class=\"remote\">\n" +
@@ -2820,8 +2987,9 @@ angular.module("tvshow/details.tpl.html", []).run(["$templateCache", function($t
     "<div ng-switch on=\"loading\" ng-class=\"{loading : loading}\">\n" +
     "    <div ng-switch-when=\"true\" class=\"icon-spinner icon-spin icon-large\"></div>\n" +
     "    <div ng-switch-when=\"false\" class=\"tvshow\">\n" +
-    "        <img class=\"banner\" src=\"{{library.item.art['tvshow.banner']  | asset:configuration.host.ip}}\"\n" +
-    "             alt=\"show.title\"/>\n" +
+    "        <img class=\"banner\"\n" +
+    "             src=\"{{library.item.art['tvshow.banner']  | asset:configuration.host.ip | fallback:'img/backgrounds/low-contrast-256.png'}}\"\n" +
+    "             />\n" +
     "\n" +
     "        <div class=\"episode detail\">\n" +
     "\n" +
@@ -2884,7 +3052,7 @@ angular.module("tvshow/list.tpl.html", []).run(["$templateCache", function($temp
     "            ng-tap=\"go('/tvshow/' + show.tvshowid, 'none')\"\n" +
     "            ng-class-odd=\"'odd'\">\n" +
     "            <em class=\"playcount\" ng-show=\"show.playcount\">&#10003;</em>\n" +
-    "            <img class=\"banner\" src=\"{{show.art.banner  | asset:configuration.host.ip}}\" alt=\"show.title\"/>\n" +
+    "            <img class=\"banner\" src=\"{{show.art.banner  | asset:configuration.host.ip | fallback:'img/backgrounds/banner.png'}}\" alt=\"show.title\"/>\n" +
     "\n" +
     "            <div class=\"rating\">\n" +
     "                <em>{{show.rating | number:1}}</em>\n" +

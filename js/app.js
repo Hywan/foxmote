@@ -1,4 +1,4 @@
-angular.module('templates.app', ['layout/footers/basic.tpl.html', 'layout/footers/details.tpl.html', 'layout/footers/player.tpl.html', 'layout/headers/basic.tpl.html', 'layout/headers/searchable.tpl.html', 'movie/details.tpl.html', 'movie/list.tpl.html', 'music/albums.tpl.html', 'music/artists.tpl.html', 'music/musics.tpl.html', 'music/songs.tpl.html', 'navigation/navigation.tpl.html', 'now/playing.tpl.html', 'remote/remote.tpl.html', 'settings/wizard.tpl.html', 'tvshow/details.tpl.html', 'tvshow/episodes.tpl.html', 'tvshow/list.tpl.html', 'tvshow/seasons.tpl.html']);
+angular.module('templates.app', ['layout/footers/basic.tpl.html', 'layout/footers/details.tpl.html', 'layout/footers/player.tpl.html', 'layout/headers/basic.tpl.html', 'layout/headers/searchable.tpl.html', 'movie/details.tpl.html', 'movie/list.tpl.html', 'music/albums.tpl.html', 'music/artists.tpl.html', 'music/musics.tpl.html', 'music/songs.tpl.html', 'navigation/navigation.tpl.html', 'now/playing.tpl.html', 'now/playlist.tpl.html', 'remote/remote.tpl.html', 'settings/wizard.tpl.html', 'tvshow/details.tpl.html', 'tvshow/episodes.tpl.html', 'tvshow/list.tpl.html', 'tvshow/seasons.tpl.html']);
 
 angular.module("layout/footers/basic.tpl.html", []).run(["$templateCache", function($templateCache) {
   $templateCache.put("layout/footers/basic.tpl.html",
@@ -37,7 +37,7 @@ angular.module("layout/footers/details.tpl.html", []).run(["$templateCache", fun
     "        <div class=\"span3\" ng-tap=\"imdb(library.item.imdbnumber)\">\n" +
     "            <span class=\"imdb\">IMDb</span>\n" +
     "        </div>\n" +
-    "        <div class=\"span3\" ng-tap=\"play({'file': library.item..trailer})\">\n" +
+    "        <div class=\"span3\" ng-tap=\"play({'file': library.item.trailer})\">\n" +
     "            <i class=\"icon-film\"></i>\n" +
     "        </div>\n" +
     "        <div class=\"span3\" ng-tap=\"add({'movieid': library.item.movieid})\">\n" +
@@ -87,10 +87,10 @@ angular.module("layout/headers/basic.tpl.html", []).run(["$templateCache", funct
     "<a ng-tap=\"$parent.toggleDrawer()\"><i class=\"icon icon-reorder\"></i></a>\n" +
     "<h1>\n" +
     "    Foxmote\n" +
-    "    <i class=\"pull-right logo\"></i>\n" +
+    "    <i class=\"logo\"></i>\n" +
     "</h1>\n" +
-    "<h2 ng-class=\"{connected : $parent.isConnected(), disconnected : !$parent.isConnected()}\"\n" +
-    "    ng-switch on=\"$parent.isConnected()\">\n" +
+    "<h2 ng-class=\"{connected : connected, disconnected : !connected}\"\n" +
+    "    ng-switch on=\"connected\">\n" +
     "    <div ng-switch-when=\"true\">\n" +
     "        {{configuration.host.displayName}}\n" +
     "        <span class=\"pull-right\">{{configuration.host.ip}}</span>\n" +
@@ -110,8 +110,8 @@ angular.module("layout/headers/searchable.tpl.html", []).run(["$templateCache", 
     "        <button type=\"reset\" class=\"icon-remove\"></button>\n" +
     "    </form>\n" +
     "</h1>\n" +
-    "<h2 ng-class=\"{connected : $parent.isConnected(), disconnected : !$parent.isConnected()}\"\n" +
-    "    ng-switch on=\"$parent.isConnected()\">\n" +
+    "<h2 ng-class=\"{connected : connected, disconnected : !connected}\"\n" +
+    "    ng-switch on=\"connected\">\n" +
     "    <div ng-switch-when=\"true\">\n" +
     "        {{configuration.host.displayName}}\n" +
     "        <span class=\"pull-right\">{{configuration.host.ip}}</span>\n" +
@@ -133,7 +133,7 @@ angular.module("movie/details.tpl.html", []).run(["$templateCache", function($te
     "            </h1>\n" +
     "\n" +
     "            <div class=\"row\">\n" +
-    "                <img class=\"offset1 span5 poster\" src=\"{{library.item.thumbnail | asset:configuration.host.ip}}\"/>\n" +
+    "                <img class=\"offset1 span5 poster\" src=\"{{library.item.thumbnail | asset:configuration.host.ip | fallback:'img/backgrounds/low-contrast-256.png'}}\"/>\n" +
     "\n" +
     "                <div class=\"span6\">\n" +
     "                    <ul>\n" +
@@ -322,9 +322,9 @@ angular.module("navigation/navigation.tpl.html", []).run(["$templateCache", func
   $templateCache.put("navigation/navigation.tpl.html",
     "<section data-type=\"sidebar\">\n" +
     "    <header>\n" +
-    "        <h1>Medias</h1>\n" +
+    "        <h1>Library</h1>\n" +
     "    </header>\n" +
-    "    <nav>\n" +
+    "    <nav ng-class=\"{'active-player' : player.active, 'inactive-player': player.active}\">\n" +
     "        <ul>\n" +
     "            <li ng-repeat=\"item in medias\">\n" +
     "                <a ng-tap=\"go(item.hash)\" ng-class=\"isCurrent(item.hash)\">\n" +
@@ -332,13 +332,18 @@ angular.module("navigation/navigation.tpl.html", []).run(["$templateCache", func
     "                    {{item.label}}\n" +
     "                </a>\n" +
     "            </li>\n" +
-    "        </ul>\n" +
-    "    </nav>\n" +
-    "    <header>\n" +
-    "        <h1>Controls</h1>\n" +
-    "    </header>\n" +
-    "    <nav>\n" +
-    "        <ul>\n" +
+    "            <li  ng-show=\"player.active\">\n" +
+    "                <a  ng-tap=\"go('/now/playing')\" ng-class=\"isCurrent('/now/playing')\">\n" +
+    "                    <i class=\"icon-youtube-play\"></i>\n" +
+    "                    Now playing\n" +
+    "                </a>\n" +
+    "            </li>\n" +
+    "            <li  ng-show=\"player.active\">\n" +
+    "                <a  ng-tap=\"go('/now/playlist')\" ng-class=\"isCurrent('/now/playlist')\">\n" +
+    "                    <i class=\"icon-glass\"></i>\n" +
+    "                    Queue\n" +
+    "                </a>\n" +
+    "            </li>\n" +
     "            <li ng-repeat=\"item in controls\">\n" +
     "                <a ng-tap=\"go(item.hash)\" ng-class=\"isCurrent(item.hash)\">\n" +
     "                    <i class=\"{{item.icon}}\"></i>\n" +
@@ -348,7 +353,10 @@ angular.module("navigation/navigation.tpl.html", []).run(["$templateCache", func
     "        </ul>\n" +
     "    </nav>\n" +
     "    <div class=\"now playing\" ng-show=\"player.active\">\n" +
-    "        <img class=\"poster\" src=\"{{getThumb(player.item.art)}}\" ng-tap=\"go('/now/playing','none')\"/>\n" +
+    "        <img class=\"poster\" src=\"{{player.item.art | thumb | asset:configuration.host.ip}}\" ng-tap=\"go('/now/playing','none')\"\n" +
+    "             ng-show=\"hasPoster(player.item.art)\"/>\n" +
+    "        <img class=\"poster unknown\" src=\"img/blank.gif\" ng-tap=\"go('/now/playing')\"\n" +
+    "             ng-hide=\"hasPoster(player.item.art)\"/>\n" +
     "        <h1>{{getLabel(player.item)}}</h1>\n" +
     "        <footer>\n" +
     "            <div class=\"row actions\">\n" +
@@ -439,6 +447,30 @@ angular.module("now/playing.tpl.html", []).run(["$templateCache", function($temp
     "</form>");
 }]);
 
+angular.module("now/playlist.tpl.html", []).run(["$templateCache", function($templateCache) {
+  $templateCache.put("now/playlist.tpl.html",
+    "<div ng-switch on=\"loading\" ng-class=\"{loading : loading}\">\n" +
+    "    <div ng-switch-when=\"true\" class=\"icon-spinner icon-spin icon-large\"></div>\n" +
+    "    <div data-type=\"list\" ng-switch-when=\"false\">\n" +
+    "        <ul class=\"view songs\">\n" +
+    "            <li class=\"row \" ng-repeat=\"item in items\"\n" +
+    "                ng-class-odd=\"'odd'\"\n" +
+    "                ng-tap=\"next($index)\">\n" +
+    "                    <img class=\"span4 poster\"\n" +
+    "                         src=\"{{item.art | thumb | asset:configuration.host.ip | fallback:'img/backgrounds/low-contrast-128.png'}}\"/>\n" +
+    "                <div class=\"span8\">\n" +
+    "                    <p>{{item.label}}</p>\n" +
+    "                    <p ng-show=\"item.duration\">{{item.duration | time | date :'mm:ss'}}</p>\n" +
+    "                    <p ng-show=\"item.runtime\">{{item.runtime| time | date :'hh:mm:ss'}}</p>\n" +
+    "                    <img class=\"equalizer\" src=\"img/backgrounds/equalizer.gif\" ng-show=\"isPlaying(item.id)\"/>\n" +
+    "                </div>\n" +
+    "            </li>\n" +
+    "            <li ng-show=\"!items.length\" class=\"empty list\">No item here :'(</li>\n" +
+    "        </ul>\n" +
+    "    </div>\n" +
+    "</div>");
+}]);
+
 angular.module("remote/remote.tpl.html", []).run(["$templateCache", function($templateCache) {
   $templateCache.put("remote/remote.tpl.html",
     "<div class=\"remote\">\n" +
@@ -521,8 +553,9 @@ angular.module("tvshow/details.tpl.html", []).run(["$templateCache", function($t
     "<div ng-switch on=\"loading\" ng-class=\"{loading : loading}\">\n" +
     "    <div ng-switch-when=\"true\" class=\"icon-spinner icon-spin icon-large\"></div>\n" +
     "    <div ng-switch-when=\"false\" class=\"tvshow\">\n" +
-    "        <img class=\"banner\" src=\"{{library.item.art['tvshow.banner']  | asset:configuration.host.ip}}\"\n" +
-    "             alt=\"show.title\"/>\n" +
+    "        <img class=\"banner\"\n" +
+    "             src=\"{{library.item.art['tvshow.banner']  | asset:configuration.host.ip | fallback:'img/backgrounds/low-contrast-256.png'}}\"\n" +
+    "             />\n" +
     "\n" +
     "        <div class=\"episode detail\">\n" +
     "\n" +
@@ -585,7 +618,7 @@ angular.module("tvshow/list.tpl.html", []).run(["$templateCache", function($temp
     "            ng-tap=\"go('/tvshow/' + show.tvshowid, 'none')\"\n" +
     "            ng-class-odd=\"'odd'\">\n" +
     "            <em class=\"playcount\" ng-show=\"show.playcount\">&#10003;</em>\n" +
-    "            <img class=\"banner\" src=\"{{show.art.banner  | asset:configuration.host.ip}}\" alt=\"show.title\"/>\n" +
+    "            <img class=\"banner\" src=\"{{show.art.banner  | asset:configuration.host.ip | fallback:'img/backgrounds/banner.png'}}\" alt=\"show.title\"/>\n" +
     "\n" +
     "            <div class=\"rating\">\n" +
     "                <em>{{show.rating | number:1}}</em>\n" +
