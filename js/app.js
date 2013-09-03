@@ -474,48 +474,60 @@ angular.module("now/playlist.tpl.html", []).run(["$templateCache", function($tem
 angular.module("remote/remote.tpl.html", []).run(["$templateCache", function($templateCache) {
   $templateCache.put("remote/remote.tpl.html",
     "<div class=\"remote\">\n" +
-    "    <div class=\"row\">\n" +
-    "        <div class=\"action\" ng-tap=\"xbmc.send('Input.Home')\">\n" +
-    "            <i class=\"icon icon-home\"></i>\n" +
+    "    <div class=\"row shortcuts\">\n" +
+    "        <div class=\"action\" ng-tap=\"xbmc.send('Input.ContextMenu')\">\n" +
+    "            <i class=\"icon icon-list-ul\"></i>\n" +
     "        </div>\n" +
     "        <div class=\"action\" ng-tap=\"xbmc.send('Input.Info')\">\n" +
     "            <i class=\"icon icon-info-sign\"></i>\n" +
+    "        </div>\n" +
+    "         <div class=\"action\" ng-tap=\"xbmc.send('Input.Home')\">\n" +
+    "            <i class=\"icon icon-home\"></i>\n" +
     "        </div>\n" +
     "        <div class=\"action\" ng-tap=\"xbmc.send('System.Shutdown')\">\n" +
     "            <i class=\"icon icon-power-off\"></i>\n" +
     "        </div>\n" +
     "    </div>\n" +
-    "    <div class=\"row\">\n" +
-    "        <div class=\"action\" ng-tap=\"xbmc.send('Input.Back')\">\n" +
-    "            <i class=\"icon icon-mail-reply\"></i>\n" +
-    "        </div>\n" +
-    "        <div class=\"action direction\" ng-tap=\"xbmc.send('Input.Up')\">\n" +
-    "            <i class=\"icon icon-chevron-up\"></i>\n" +
-    "        </div>\n" +
-    "        <div class=\"action\"  ng-tap=\"setVolume(volume +1)\">\n" +
-    "            <i class=\"icon icon-volume-off\"><small>+</small></i>\n" +
-    "        </div>\n" +
-    "    </div>\n" +
-    "    <div class=\"row\">\n" +
-    "        <div class=\"action direction\" ng-tap=\"xbmc.send('Input.Left')\">\n" +
-    "            <i class=\"icon icon-chevron-left\"></i>\n" +
-    "        </div>\n" +
-    "        <div class=\"action\" ng-tap=\"xbmc.send('Input.Select')\">\n" +
-    "            <i class=\"icon icon-circle\"></i>\n" +
-    "        </div>\n" +
-    "        <div class=\"action direction\" ng-tap=\"xbmc.send('Input.Right')\">\n" +
-    "            <i class=\"icon icon-chevron-right\"></i>\n" +
+    "\n" +
+    "    <div class=\"sound\">\n" +
+    "        <div class=\"row\">\n" +
+    "            <div class=\"action\" ng-tap=\"toggleMute()\">\n" +
+    "                <i class=\"icon icon-volume-off\"></i>\n" +
+    "            </div>\n" +
+    "            <div class=\"action\" ng-tap=\"setVolume(volume -1)\">\n" +
+    "                <i class=\"icon icon-volume-down\"></i>\n" +
+    "            </div>\n" +
+    "            <div class=\"action\"  ng-tap=\"setVolume(volume +1)\">\n" +
+    "                <i class=\"icon icon-volume-up\"></i>\n" +
+    "            </div>\n" +
     "        </div>\n" +
     "    </div>\n" +
-    "    <div class=\"row\">\n" +
-    "        <div class=\"action\" ng-tap=\"xbmc.send('Input.ContextMenu')\">\n" +
-    "            <i class=\"icon icon-list-ul\"></i>\n" +
+    "\n" +
+    "    <div class=\"navigation\">\n" +
+    "        <div class=\"row\">\n" +
+    "            <div class=\"action offseted direction\" ng-tap=\"xbmc.send('Input.Up')\">\n" +
+    "                <i class=\"icon icon-chevron-up\"></i>\n" +
+    "            </div>\n" +
     "        </div>\n" +
-    "        <div class=\"action direction\" ng-tap=\"xbmc.send('Input.Down')\">\n" +
-    "            <i class=\"icon icon-chevron-down\"></i>\n" +
+    "        <div class=\"row\">\n" +
+    "            <div class=\"action direction\" ng-tap=\"xbmc.send('Input.Left')\">\n" +
+    "                <i class=\"icon icon-chevron-left\"></i>\n" +
+    "            </div>\n" +
+    "            <div class=\"action\" ng-tap=\"xbmc.send('Input.Select')\">\n" +
+    "                <i class=\"icon icon-circle\"></i>\n" +
+    "            </div>\n" +
+    "            <div class=\"action direction\" ng-tap=\"xbmc.send('Input.Right')\">\n" +
+    "                <i class=\"icon icon-chevron-right\"></i>\n" +
+    "            </div>\n" +
     "        </div>\n" +
-    "        <div class=\"action\" ng-tap=\"setVolume(volume -1)\">\n" +
-    "            <i class=\"icon icon-volume-off\"><small>-</small></i>\n" +
+    "        <div class=\"row\">\n" +
+    "            <div class=\"action\" ng-tap=\"xbmc.send('Input.Back')\">\n" +
+    "                <i class=\"icon icon-mail-reply\"></i>\n" +
+    "            </div>\n" +
+    "            <div class=\"action direction\" ng-tap=\"xbmc.send('Input.Down')\">\n" +
+    "                <i class=\"icon icon-chevron-down\"></i>\n" +
+    "            </div>\n" +
+    "            <div class=\"action\"></div>\n" +
     "        </div>\n" +
     "    </div>\n" +
     "</div>");
