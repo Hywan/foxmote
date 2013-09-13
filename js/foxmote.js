@@ -27,28 +27,26 @@ angular.module('app')
     .controller('AppCtrl', ['$scope', '$rootScope', '$state', '$location', '$filter', 'xbmc',
         function ($scope, $rootScope, $state, $location, $filter, xbmc) {
             $scope.$state = $state;
-            var init = function () {
-                $scope.connected = false;
-                $scope.player = {
-                    id: -1,
-                    active: false,
-                    audiostreams: [],
-                    current: {},
-                    intervalId: -1,
-                    item: {},
-                    seek: {},
-                    speed: 0,
-                    subtitles: [],
-                    type: ''
-                };
-                $scope.playlist = -1;
-                $scope.library = {
-                    item: {},
-                    criteria: ''
-                };
+            $scope.connected = false;
+           
+            $scope.player = {
+                id: -1,
+                active: false,
+                audiostreams: [],
+                current: {},
+                intervalId: -1,
+                item: {},
+                seek: {},
+                speed: 0,
+                subtitles: [],
+                type: ''
             };
-
-            init();
+            $scope.playlist = -1;
+            $scope.library = {
+                item: {},
+                criteria: ''
+            };
+        
             $scope.configuration = {host: {ip: '', port: '', displayName: ''}};
             $scope.xbmc = xbmc;
 
@@ -160,8 +158,10 @@ angular.module('app')
 
             var onPlayerStop = function (obj) {
                 window.clearInterval($scope.player.intervalId);
-                init();
-                $scope.go('/');
+                $scope.player.seek.time = $scope.player.seek.totaltime;
+                $scope.player.seek.percentage = 100;
+                $scope.player.seek.lastUpdate = Date.now();
+                $scope.player.active = false;
             };
 
             var onPlayerSeek = function (obj) {
@@ -571,7 +571,7 @@ angular.module('app')
         };
 
         var playlistAdd = function () {
-            if ($scope.queue.length > 0) {
+            if ($scope.isFiltered() && $scope.queue.length > 0) {
                 $scope.xbmc.send('Playlist.Add', {
                     'playlistid': $scope.playlist,
                     'item': {songid: $scope.queue[0].songid}
@@ -890,7 +890,7 @@ angular.module('app')
                 $scope.xbmc.send('Application.GetProperties', {
                     'properties': ['volume']
                 }, true, 'result.volume').then(function(volume) {
-                    $scope.volume = result.volume;
+                    $scope.volume = volume;
                 });
             };
             if ($scope.xbmc.isConnected()) {
@@ -2374,6 +2374,7 @@ angular.module('services.xbmc', ['services.websocket'])
 
             function onMessage(event) {
                 if (event.data !== '') {
+                    console.log(event.data);
                     var data = JSON.parse(event.data);
                     if (callbacks.hasOwnProperty(data.id)) {
                         var cb = callbacks[data.id];
@@ -2387,7 +2388,7 @@ angular.module('services.xbmc', ['services.websocket'])
                     } else if (notifications[data.method] && notifications[data.method].length > 0) {
                         for (var i = 0; i < notifications[data.method].length; i++) {
                             var cb = notifications[data.method][i];
-                            cb.fn.call(cb.scope, data);
+                            $rootScope.$apply(cb.fn.call(cb.scope, data));
                         }
                     }
                 }
@@ -2440,26 +2441,15 @@ angular.module('templates.app', ['layout/footers/basic.tpl.html', 'layout/footer
 
 angular.module("layout/footers/basic.tpl.html", []).run(["$templateCache", function($templateCache) {
   $templateCache.put("layout/footers/basic.tpl.html",
-    "<div ng-switch on=\"player.active\">\n" +
-    "    <div ng-switch-when=\"true\" class=\"row actions\">\n" +
-    "        <div class=\"span3 icon-backward\"  ng-tap=\"\">\n" +
-    "        </div>\n" +
-    "        <div class=\"span3 icon-stop\" ng-tap=\"stop()\">\n" +
-    "        </div>\n" +
-    "        <div class=\"span3 icon-play\" ng-hide=\"player.speed\" ng-tap=\"togglePlay()\"></div>\n" +
-    "        <div class=\"span3 icon-pause\" ng-show=\"player.speed\" ng-tap=\"togglePlay()\"></div>\n" +
-    "        <div class=\"span3 icon-forward\" ng-tap=\"\">\n" +
-    "        </div>\n" +
+    "\n" +
+    "<div class=\"row actions\">\n" +
+    "    <div class=\"span3 icon-film\"  ng-tap=\"goTo('videos','MovieTitles')\">\n" +
     "    </div>\n" +
-    "    <div ng-switch-when=\"false\" class=\"row actions\">\n" +
-    "        <div class=\"span3 icon-film\"  ng-tap=\"goTo('videos','MovieTitles')\">\n" +
-    "        </div>\n" +
-    "        <div class=\"span3 icon-facetime-video\" ng-tap=\"goTo('videos','TVShowTitles')\">\n" +
-    "        </div>\n" +
-    "        <div class=\"span3 icon-music\" ng-tap=\"goTo('music')\">\n" +
-    "        </div>\n" +
-    "        <div class=\"span3 icon-picture\" ng-tap=\"goTo('pictures')\">\n" +
-    "        </div>\n" +
+    "    <div class=\"span3 icon-facetime-video\" ng-tap=\"goTo('videos','TVShowTitles')\">\n" +
+    "    </div>\n" +
+    "    <div class=\"span3 icon-music\" ng-tap=\"goTo('music')\">\n" +
+    "    </div>\n" +
+    "    <div class=\"span3 icon-picture\" ng-tap=\"goTo('pictures')\">\n" +
     "    </div>\n" +
     "</div>\n" +
     "");
@@ -2496,25 +2486,29 @@ angular.module("layout/footers/details.tpl.html", []).run(["$templateCache", fun
 
 angular.module("layout/footers/player.tpl.html", []).run(["$templateCache", function($templateCache) {
   $templateCache.put("layout/footers/player.tpl.html",
-    "<div class=\"row actions\">\n" +
-    "    <div class=\"span2\" ng-tap=\"previous()\">\n" +
-    "        <i class=\"icon-fast-backward\"></i>\n" +
+    "<div ng-switch on=\"player.active\">\n" +
+    "    <div ng-switch-when=\"true\" class=\"row actions\">\n" +
+    "        <div class=\"span2\" ng-tap=\"previous()\">\n" +
+    "            <i class=\"icon-fast-backward\"></i>\n" +
+    "        </div>\n" +
+    "        <div class=\"span2\" ng-tap=\"backward()\">\n" +
+    "            <i class=\"icon-backward\"></i>\n" +
+    "        </div>\n" +
+    "        <div class=\"span2\" ng-tap=\"togglePlay()\">\n" +
+    "            <i class=\"icon-play\" ng-show=\"!player.speed\"></i>\n" +
+    "            <i class=\"icon-pause\" ng-show=\"player.speed\"></i>\n" +
+    "        </div>\n" +
+    "        <div class=\"span2\" ng-tap=\"stop()\">\n" +
+    "            <i class=\"icon-stop\"></i>\n" +
+    "        </div>\n" +
+    "        <div class=\"span2\" ng-tap=\"forward()\">\n" +
+    "            <i class=\"icon-forward\"></i>\n" +
+    "        </div>\n" +
+    "        <div class=\"span2\" ng-tap=\"next()\">\n" +
+    "            <i class=\"icon-fast-forward\"></i>\n" +
+    "        </div> \n" +
     "    </div>\n" +
-    "    <div class=\"span2\" ng-tap=\"backward()\">\n" +
-    "        <i class=\"icon-backward\"></i>\n" +
-    "    </div>\n" +
-    "    <div class=\"span2\" ng-tap=\"togglePlay()\">\n" +
-    "        <i class=\"icon-play\" ng-show=\"!player.speed\"></i>\n" +
-    "        <i class=\"icon-pause\" ng-show=\"player.speed\"></i>\n" +
-    "    </div>\n" +
-    "    <div class=\"span2\" ng-tap=\"stop()\">\n" +
-    "        <i class=\"icon-stop\"></i>\n" +
-    "    </div>\n" +
-    "    <div class=\"span2\" ng-tap=\"forward()\">\n" +
-    "        <i class=\"icon-forward\"></i>\n" +
-    "    </div>\n" +
-    "    <div class=\"span2\" ng-tap=\"next()\">\n" +
-    "        <i class=\"icon-fast-forward\"></i>\n" +
+    " <div ng-switch-when=\"false\" ng-include=\"'layout/footers/basic.tpl.html'\">\n" +
     "    </div>\n" +
     "</div>\n" +
     "");

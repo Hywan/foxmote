@@ -2,26 +2,15 @@ angular.module('templates.app', ['layout/footers/basic.tpl.html', 'layout/footer
 
 angular.module("layout/footers/basic.tpl.html", []).run(["$templateCache", function($templateCache) {
   $templateCache.put("layout/footers/basic.tpl.html",
-    "<div ng-switch on=\"player.active\">\n" +
-    "    <div ng-switch-when=\"true\" class=\"row actions\">\n" +
-    "        <div class=\"span3 icon-backward\"  ng-tap=\"\">\n" +
-    "        </div>\n" +
-    "        <div class=\"span3 icon-stop\" ng-tap=\"stop()\">\n" +
-    "        </div>\n" +
-    "        <div class=\"span3 icon-play\" ng-hide=\"player.speed\" ng-tap=\"togglePlay()\"></div>\n" +
-    "        <div class=\"span3 icon-pause\" ng-show=\"player.speed\" ng-tap=\"togglePlay()\"></div>\n" +
-    "        <div class=\"span3 icon-forward\" ng-tap=\"\">\n" +
-    "        </div>\n" +
+    "\n" +
+    "<div class=\"row actions\">\n" +
+    "    <div class=\"span3 icon-film\"  ng-tap=\"goTo('videos','MovieTitles')\">\n" +
     "    </div>\n" +
-    "    <div ng-switch-when=\"false\" class=\"row actions\">\n" +
-    "        <div class=\"span3 icon-film\"  ng-tap=\"goTo('videos','MovieTitles')\">\n" +
-    "        </div>\n" +
-    "        <div class=\"span3 icon-facetime-video\" ng-tap=\"goTo('videos','TVShowTitles')\">\n" +
-    "        </div>\n" +
-    "        <div class=\"span3 icon-music\" ng-tap=\"goTo('music')\">\n" +
-    "        </div>\n" +
-    "        <div class=\"span3 icon-picture\" ng-tap=\"goTo('pictures')\">\n" +
-    "        </div>\n" +
+    "    <div class=\"span3 icon-facetime-video\" ng-tap=\"goTo('videos','TVShowTitles')\">\n" +
+    "    </div>\n" +
+    "    <div class=\"span3 icon-music\" ng-tap=\"goTo('music')\">\n" +
+    "    </div>\n" +
+    "    <div class=\"span3 icon-picture\" ng-tap=\"goTo('pictures')\">\n" +
     "    </div>\n" +
     "</div>\n" +
     "");
@@ -58,25 +47,29 @@ angular.module("layout/footers/details.tpl.html", []).run(["$templateCache", fun
 
 angular.module("layout/footers/player.tpl.html", []).run(["$templateCache", function($templateCache) {
   $templateCache.put("layout/footers/player.tpl.html",
-    "<div class=\"row actions\">\n" +
-    "    <div class=\"span2\" ng-tap=\"previous()\">\n" +
-    "        <i class=\"icon-fast-backward\"></i>\n" +
+    "<div ng-switch on=\"player.active\">\n" +
+    "    <div ng-switch-when=\"true\" class=\"row actions\">\n" +
+    "        <div class=\"span2\" ng-tap=\"previous()\">\n" +
+    "            <i class=\"icon-fast-backward\"></i>\n" +
+    "        </div>\n" +
+    "        <div class=\"span2\" ng-tap=\"backward()\">\n" +
+    "            <i class=\"icon-backward\"></i>\n" +
+    "        </div>\n" +
+    "        <div class=\"span2\" ng-tap=\"togglePlay()\">\n" +
+    "            <i class=\"icon-play\" ng-show=\"!player.speed\"></i>\n" +
+    "            <i class=\"icon-pause\" ng-show=\"player.speed\"></i>\n" +
+    "        </div>\n" +
+    "        <div class=\"span2\" ng-tap=\"stop()\">\n" +
+    "            <i class=\"icon-stop\"></i>\n" +
+    "        </div>\n" +
+    "        <div class=\"span2\" ng-tap=\"forward()\">\n" +
+    "            <i class=\"icon-forward\"></i>\n" +
+    "        </div>\n" +
+    "        <div class=\"span2\" ng-tap=\"next()\">\n" +
+    "            <i class=\"icon-fast-forward\"></i>\n" +
+    "        </div> \n" +
     "    </div>\n" +
-    "    <div class=\"span2\" ng-tap=\"backward()\">\n" +
-    "        <i class=\"icon-backward\"></i>\n" +
-    "    </div>\n" +
-    "    <div class=\"span2\" ng-tap=\"togglePlay()\">\n" +
-    "        <i class=\"icon-play\" ng-show=\"!player.speed\"></i>\n" +
-    "        <i class=\"icon-pause\" ng-show=\"player.speed\"></i>\n" +
-    "    </div>\n" +
-    "    <div class=\"span2\" ng-tap=\"stop()\">\n" +
-    "        <i class=\"icon-stop\"></i>\n" +
-    "    </div>\n" +
-    "    <div class=\"span2\" ng-tap=\"forward()\">\n" +
-    "        <i class=\"icon-forward\"></i>\n" +
-    "    </div>\n" +
-    "    <div class=\"span2\" ng-tap=\"next()\">\n" +
-    "        <i class=\"icon-fast-forward\"></i>\n" +
+    " <div ng-switch-when=\"false\" ng-include=\"'layout/footers/basic.tpl.html'\">\n" +
     "    </div>\n" +
     "</div>\n" +
     "");
