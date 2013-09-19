@@ -1,4 +1,4 @@
-/*! foxmote - v0.0.1 - 2013-09-16
+/*! foxmote - v0.0.1 - 2013-09-19
  * Copyright (c) 2013 Nicolas ABRIC;
  * Licensed MIT
  */
