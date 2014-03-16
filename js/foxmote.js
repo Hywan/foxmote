@@ -1,1096 +1,7 @@
-/*! foxmote - v0.0.1 - 2014-01-04
+/*! foxmote - v0.0.1 - 2014-03-16
  * Copyright (c) 2014 Nicolas ABRIC;
  * Licensed MIT
  */
-"use strict";
-angular.module('app', [
-    'ui.state',
-    'directives.rating',
-    'directives.seekbar',
-    'directives.tap',
-    'filters.xbmc',
-    'services.xbmc',
-    'templates.app']);
-
-// this is where our app definition is
-angular.module('app')
-    .config(['$stateProvider', '$urlRouterProvider',
-        function ($stateProvider, $urlRouterProvider) {
-            var xbmchost = localStorage.getItem('xbmchost');
-            if (xbmchost === null) {
-                $urlRouterProvider.otherwise("/settings");
-            } else {
-                $urlRouterProvider.otherwise("/");
-            }
-
-        }])
-    .controller('AppCtrl', ['$scope', '$rootScope', '$state', '$location', '$filter', 'xbmc',
-        function ($scope, $rootScope, $state, $location, $filter, xbmc) {
-            $scope.$state = $state;
-            $scope.connected = false;
-           
-            $scope.player = {
-                id: -1,
-                active: false,
-                audiostreams: [],
-                current: {},
-                intervalId: -1,
-                item: {},
-                seek: {},
-                speed: 0,
-                subtitles: [],
-                type: ''
-            };
-            $scope.playlist = -1;
-            $scope.library = {
-                item: {},
-                criteria: ''
-            };
-        
-            $scope.configuration = {host: {ip: '', port: '', displayName: ''}};
-            $scope.xbmc = xbmc;
-
-            $scope.go = function (path) {
-                $location.path(path);
-            };
-
-            $scope.hasFooter = function () {
-                return $scope.$state.current.views && $scope.$state.current.views.footer;
-            }
-
-            $scope.isConnected = function () {
-                return xbmc.isConnected()
-            }
-
-            $scope.toggleDrawer = function () {
-                var page = angular.element(document.querySelector('#page'));
-                page.toggleClass('minimize');
-            }
-
-            $rootScope.$on("$stateChangeStart", function (event, next, current) {
-                if ($scope.configuration.host.ip === '') {
-                    $scope.go('/settings');
-                }
-            });
-
-            var updateSeek = function () {
-                $scope.$apply(function () {
-                    $scope.player.seek.time++;
-                    $scope.player.seek.percentage = $scope.player.seek.time / $scope.player.seek.totaltime * 100;
-                    var now = Date.now();
-                    if (now - $scope.player.seek.lastUpdate > 5000) {
-                        getProperties();
-                    } else {
-                        $scope.player.seek.lastUpdate = now;
-                    }
-                });
-            };
-
-            var getItem = function (player) {
-                $scope.player.id = player.playerid;
-                $scope.player.active = true;
-                xbmc.send('Player.GetItem', {
-                    'properties': ['title', 'artist', 'albumartist', 'genre',
-                        'year', 'rating', 'album', 'track', 'duration', 'comment', 'lyrics',
-                        'musicbrainztrackid', 'musicbrainzartistid', 'musicbrainzalbumid',
-                        'musicbrainzalbumartistid', 'playcount', 'fanart', 'director', 'trailer',
-                        'tagline', 'plot', 'plotoutline', 'originaltitle', 'lastplayed', 'writer',
-                        'studio', 'mpaa', 'cast', 'country', 'imdbnumber', 'premiered', 'productioncode',
-                        'runtime', 'set', 'showlink', 'streamdetails', 'top250', 'votes', 'firstaired',
-                        'season', 'episode', 'showtitle', 'thumbnail', 'file', 'resume', 'artistid',
-                        'albumid', 'tvshowid', 'setid', 'watchedepisodes', 'disc', 'tag', 'art', 'genreid',
-                        'displayartist', 'albumartistid', 'description', 'theme', 'mood', 'style',
-                        'albumlabel', 'sorttitle', 'episodeguide', 'uniqueid', 'dateadded', 'channel',
-                        'channeltype', 'hidden', 'locked', 'channelnumber', 'starttime', 'endtime'],
-                    'playerid': $scope.player.id
-                }, true, 'result.item').then(function (item) {
-                        $scope.player.item = item;
-                        getProperties();
-                    });
-            };
-
-            var getProperties = function () {
-                xbmc.send('Player.GetProperties', {
-                    'properties': ['percentage', 'time', 'totaltime',
-                        'speed', 'playlistid',
-                        'currentsubtitle', 'subtitles',
-                        'audiostreams', 'currentaudiostream', 'type'],
-                    'playerid': $scope.player.id
-                }, true, 'result').then(function (properties) {
-                        if (properties) {
-                            var timeFilter = $filter('time');
-                            $scope.player.audiostreams = properties.audiostreams;
-                            $scope.player.current = {
-                                audiostream: properties.currentaudiostream,
-                                subtitle: properties.currentsubtitle
-                            };
-                            $scope.player.seek = {
-                                time: timeFilter(properties.time),
-                                totaltime: timeFilter(properties.totaltime),
-                                percentage: properties.percentage
-                            };
-                            $scope.player.speed = properties.speed;
-                            $scope.player.subtitles = properties.subtitles;
-                            $scope.player.type = properties.type;
-
-                            $scope.playlist = properties.playlistid;
-                            if (properties.speed === 1) {
-                                window.clearInterval($scope.player.intervalId);
-                                $scope.player.intervalId = window.setInterval(updateSeek, 1000);
-                            }
-                        }
-                    });
-            };
-
-            var onPlayerPause = function () {
-                $scope.player.speed = 0;
-                window.clearInterval($scope.player.intervalId);
-            };
-
-            var onPlayerPlay = function (obj) {
-                var data = obj.params.data;
-                getItem(data.player);
-            };
-
-            var onPlayerPropertyChanged = function (obj) {
-                var data = obj.params.data;
-            };
-
-            var onPlayerStop = function (obj) {
-                window.clearInterval($scope.player.intervalId);
-                $scope.player.seek.time = $scope.player.seek.totaltime;
-                $scope.player.seek.percentage = 100;
-                $scope.player.seek.lastUpdate = Date.now();
-                $scope.player.active = false;
-            };
-
-            var onPlayerSeek = function (obj) {
-                var data = obj.params.data;
-                var time = data.player.time;
-                var timeFilter = $filter('time');
-                var seek = $scope.player.seek;
-                seek.time = timeFilter(time);
-                seek.percentage = seek.time / seek.totaltime * 100;
-            };
-
-            var onPlayerSpeedChanged = function (obj) {
-                var data = obj.params.data;
-            };
-
-            var onPlaylistClear = function () {
-                $scope.playlist = -1;
-            };
-
-            xbmc.register('Player.OnPause', { fn: onPlayerPause, scope: this});
-            xbmc.register('Player.OnPlay', { fn: onPlayerPlay, scope: this});
-            xbmc.register('Player.OnPropertyChanged', { fn: onPlayerPropertyChanged, scope: this});
-            xbmc.register('Player.OnStop', { fn: onPlayerStop, scope: this});
-            xbmc.register('Player.OnSeek', { fn: onPlayerSeek, scope: this});
-            xbmc.register('Playlist.OnClear', { fn: onPlaylistClear, scope: this});
-
-
-            var xbmchost = localStorage.getItem('xbmchost');
-            if (xbmchost === null) {
-                $scope.go('/settings');
-            } else {
-                $scope.configuration = JSON.parse(xbmchost);
-                var onLoad = function () {
-                    $scope.connected = true;
-                    xbmc.send('Player.GetActivePlayers', null, true, 'result').then(function (players) {
-                        if (players.length > 0) {
-                            getItem(players[0]);
-                        }
-                    });
-                }
-                var onDisconnect = function () {
-                    $scope.connected = false;
-                };
-                if (xbmc.isConnected()) {
-                    onLoad();
-                } else {
-                    xbmc.register('Websocket.OnConnected', { fn: onLoad, scope: this});
-                    xbmc.register('Websocket.OnDisconnected', { fn: onDisconnect, scope: this});
-                    $scope.xbmc.connect($scope.configuration.host.ip, $scope.configuration.host.port);
-                }
-            }
-            var main = document.querySelector('div[role="main"]');
-            var gestureDetector = new GestureDetector(main);
-            gestureDetector.startDetecting();
-
-            var onSwipe = function (event) {
-                var direction = event.detail.direction || '';
-                var page = angular.element(document.querySelector('#page'));
-                if (direction.toLowerCase() === 'left' && page.hasClass('minimize')) {
-                    page.removeClass('minimize');
-                } else if (direction.toLowerCase() === 'right' && !page.hasClass('minimize')) {
-                    page.addClass('minimize');
-                }
-            };
-
-            main.addEventListener('swipe', onSwipe.bind(this));
-        }]);
-angular.module('app')
-    .controller('FooterCtrl', ['$scope',
-        function FooterCtrl($scope) {
-            $scope.goTo = function (window, category) {
-                var params = {'window': window};
-                if (category) {
-                    params.parameters = [category]
-                }
-                $scope.xbmc.send('GUI.ActivateWindow', params);
-            };
-
-            $scope.imdb = function (imdbnumber) {
-                window.open('http://www.imdb.com/title/' + imdbnumber + '/', '_blank');
-            };
-
-            $scope.add = function (item) {
-                if ($scope.playlist > -1) {
-                    $scope.xbmc.send('Playlist.Add', {
-                        'playlistid': $scope.playlist,
-                        'item': item
-                    });
-                }
-            }
-
-            var setSpeed = function (speed) {
-                $scope.player.speed = speed;
-                $scope.xbmc.send('Player.SetSpeed', {
-                    'playerid': $scope.player.id,
-                    'speed': speed
-                });
-            }
-
-            $scope.backward = function () {
-                var newSpeed = $scope.player.speed;
-                if ($scope.player.speed === 1) {
-                    newSpeed = -2;
-                } else if ($scope.player.speed > 0) {
-                    newSpeed = newSpeed / 2;
-                } else if ($scope.player.speed < 0) {
-                    newSpeed = newSpeed * 2;
-                }
-                setSpeed(newSpeed >= -32 ? newSpeed : 1);
-            };
-
-            $scope.forward = function () {
-                var newSpeed = $scope.player.speed;
-                if ($scope.player.speed === -1) {
-                    newSpeed = 1;
-                } else if ($scope.player.speed > 0) {
-                    newSpeed = newSpeed * 2;
-                } else if ($scope.player.speed < 0) {
-                    newSpeed = newSpeed / 2;
-                }
-                setSpeed(newSpeed <= 32 ? newSpeed : 1);
-            };
-
-            $scope.play = function (item) {
-                $scope.xbmc.send('Player.Open', {
-                    'item': item
-                });
-            };
-
-            $scope.togglePlay = function () {
-                if ($scope.player.speed === 0 || $scope.player.speed === 1) {
-                    $scope.xbmc.send('Player.PlayPause', {
-                        'playerid': $scope.player.id
-                    });
-                } else {
-                    setSpeed(1);
-                }
-            };
-
-            $scope.next = function () {
-                $scope.xbmc.send('Player.GoTo', {
-                    'playerid': $scope.player.id,
-                    'to': 'next'
-                });
-            };
-
-            $scope.previous = function () {
-                $scope.xbmc.send('Player.GoTo', {
-                    'playerid': $scope.player.id,
-                    'to': 'previous'
-                });
-            };
-
-            $scope.stop = function () {
-                $scope.xbmc.send('Player.Stop', {
-                    'playerid': $scope.player.id
-                });
-            };
-        }
-    ])
-angular.module('app')
-    .config(['$stateProvider', function ($stateProvider) {
-        $stateProvider.state('moviedetails', {
-            url: '/movie/:movieid',
-            views: {
-                header: {templateUrl: 'layout/headers/basic.tpl.html'},
-                body: {
-                    templateUrl: 'movie/details.tpl.html',
-                    controller: 'MovieDetailsCtrl'
-                },
-                footer: {templateUrl: 'layout/footers/details.tpl.html', controller: 'FooterCtrl'}
-            }
-        });
-    }])
-    .controller('MovieDetailsCtrl', ['$scope', '$stateParams', '$location',
-        function MovieDetailsCtrl($scope, $stateParams, $location, utilities) {
-            $scope.movieid = parseInt($stateParams.movieid);
-            $scope.loading = true;
-            var onLoad = function () {
-                $scope.library.item = $scope.xbmc.send('VideoLibrary.GetMovieDetails', {
-                    'movieid': $scope.movieid,
-                    'properties': ['title', 'genre', 'rating', 'thumbnail', 'plot',
-                        'studio', 'director', 'fanart', 'runtime', 'trailer', 'imdbnumber']
-                }, true, 'result.moviedetails').then(function (item) {
-                        $scope.loading = false;
-                        item.type = 'movie';
-                        return item;
-                    });
-
-            };
-            if ($scope.xbmc.isConnected()) {
-                onLoad();
-            } else {
-                $scope.xbmc.register('Websocket.OnConnected', { fn : onLoad, scope : this});
-            }
-        }
-    ]);
-angular.module('app')
-    .config(['$stateProvider', function ($stateProvider) {
-        $stateProvider.state('movies', {
-            url: '/movies',
-            views: {
-                header: {templateUrl: 'layout/headers/searchable.tpl.html'},
-                body: {templateUrl: 'movie/list.tpl.html', controller: 'MovieListCtrl'}
-            }
-        })
-    }])
-    .controller('MovieListCtrl', ['$scope',
-        function MovieListCtrl($scope) {
-            $scope.loading = true;
-            var onLoad = function () {
-                $scope.movies = $scope.xbmc.send('VideoLibrary.GetMovies', {
-                    'limits': {
-                        'start': 0,
-                        'end': 75
-                    },
-                    'properties': ['title', 'genre', 'rating', 'thumbnail', 'runtime', 'playcount', 'streamdetails'],
-                    'sort': {
-                        'order': 'ascending',
-                        'method': 'label',
-                        'ignorearticle': true
-                    }
-                }, true, 'result.movies').then(function (movies) {
-                        $scope.loading = false;
-                        return movies;
-                    });
-            };
-            if ($scope.xbmc.isConnected()) {
-                onLoad();
-            } else {
-                $scope.xbmc.register('Websocket.OnConnected', { fn : onLoad, scope : this});
-            }
-        }
-    ]);
-angular.module('app')
-    .config(['$stateProvider', function ($stateProvider) {
-        $stateProvider.state('filteredAlbums', {
-            url: '/music/albums/:filter/:filterId',
-            views: {
-                header: {templateUrl: 'layout/headers/searchable.tpl.html'},
-                body: {
-                    templateUrl: 'music/albums.tpl.html', controller: 'MusicAlbumsCtrl'
-                }
-            }
-        }).state('albums', {
-                url: '/music/albums',
-                views: {
-                    header: {templateUrl: 'layout/headers/searchable.tpl.html'},
-                    body: {
-                        templateUrl: 'music/albums.tpl.html', controller: 'MusicAlbumsCtrl'
-                    }
-                }
-            });
-    }])
-    .controller('MusicAlbumsCtrl', ['$scope', '$stateParams',
-        function MusicAlbumsCtrl($scope, $stateParams) {
-            $scope.loading = true;
-            $scope.filter = $stateParams.filter;
-
-            var params = {
-                'limits': {
-                    'start': 0,
-                    'end': 100
-                },
-                'properties': ['title', 'artist', 'thumbnail', 'year', 'genre'],
-                'sort': {
-                    'order': 'ascending',
-                    'method': 'label',
-                    'ignorearticle': true
-                }
-            };
-
-            if ($scope.filter) {
-                $scope.filterId = parseInt($stateParams.filterId);
-                params['filter'] = {};
-                params['filter'][$scope.filter] = $scope.filterId;
-            }
-            var onLoad = function () {
-                $scope.albums = $scope.xbmc.send('AudioLibrary.GetAlbums', params, true, 'result.albums').then(function (albums) {
-                    $scope.loading = false;
-                    return albums;
-                });
-            };
-            if ($scope.xbmc.isConnected()) {
-                onLoad();
-            } else {
-                $scope.xbmc.register('Websocket.OnConnected', { fn : onLoad, scope : this});
-            }
-
-            $scope.hasCover = function (album) {
-                return album.thumbnail !== '';
-            }
-        }
-    ]);
-angular.module('app')
-    .config(['$stateProvider', function ($stateProvider) {
-        $stateProvider.state('artists', {
-            url: '/music/artists',
-            views: {
-                header: {templateUrl: 'layout/headers/searchable.tpl.html'},
-                body: {
-                    templateUrl: 'music/artists.tpl.html', controller: 'MusicArtistsCtrl'
-                }
-            }
-        });
-    }])
-    .controller('MusicArtistsCtrl', ['$scope',
-        function MusicAlbumsCtrl($scope, $stateParams) {
-            var onLoad = function () {
-                $scope.loading = true;
-                $scope.artists = $scope.xbmc.send('AudioLibrary.GetArtists', {
-                    'limits': {
-                        'start': 0,
-                        'end': 100
-                    },
-                    'properties': ['genre', 'thumbnail'],
-                    'sort': {
-                        'order': 'ascending',
-                        'method': 'label',
-                        'ignorearticle': true
-                    }
-                }, true, 'result.artists').then(function (artists) {
-                        $scope.loading = false;
-                        return artists;
-                    });
-            };
-            if ($scope.xbmc.isConnected()) {
-                onLoad();
-            } else {
-                $scope.xbmc.register('Websocket.OnConnected', { fn : onLoad, scope : this});
-            }
-
-            $scope.hasCover = function (artist) {
-                return artist.thumbnail !== '';
-            }
-        }
-    ]);
-angular.module('app')
-    .config(['$stateProvider', function ($stateProvider) {
-        $stateProvider.state('music', {
-            url: '/musics',
-            views: {
-                header: {templateUrl: 'layout/headers/basic.tpl.html'},
-                body: {
-                    templateUrl: 'music/musics.tpl.html', controller : 'MusicsCtrl'
-                }
-            }
-        })
-    }]).controller('MusicsCtrl', ['$scope',
-        function MusicsCtrl($scope) {
-            $scope.party = function() {
-                $scope.xbmc.send('Player.Open', {
-                    'item': {'file' : undefined}
-                });
-            }
-        }
-    ]);
-angular.module('app')
-    .config(['$stateProvider', function ($stateProvider) {
-        $stateProvider.state('filteredSongs', {
-            url: '/music/songs/:filter/:filterId',
-            views: {
-                header: {templateUrl: 'layout/headers/searchable.tpl.html'},
-                body: {
-                    templateUrl: 'music/songs.tpl.html', controller: 'MusicSongsCtrl'
-                }
-            }
-        }).state('songs', {
-                url: '/music/songs',
-                views: {
-                    header: {templateUrl: 'layout/headers/searchable.tpl.html'},
-                    body: {
-                        templateUrl: 'music/songs.tpl.html', controller: 'MusicSongsCtrl'
-                    }
-                }
-            });
-    }])
-    .controller('MusicSongsCtrl', ['$scope', '$rootScope', '$stateParams', '$filter',
-    function MusicSongsCtrl($scope, $rootScope, $stateParams, $filter) {
-        $scope.loading = true;
-        $scope.filter = $stateParams.filter;
-        $scope.queue = [];
-        var params = {
-            'limits': {
-                'start': 0,
-                'end': 500
-            },
-            'properties': ['title', 'artist', 'album', 'albumid', 'thumbnail', 'duration', 'track', 'year'],
-            'sort': {
-                'order': 'ascending',
-                'method': 'label',
-                'ignorearticle': true
-            }
-        };
-        if ($scope.filter) {
-            $scope.filterId = parseInt($stateParams.filterId);
-            params['filter'] = {};
-            params['filter'][$scope.filter] = $scope.filterId;
-            params.sort.method = 'track';
-        }
-        var onLoad = function () {
-            $scope.xbmc.send('AudioLibrary.GetSongs', params, true, 'result.songs').then(function (songs) {
-                $scope.loading = false;
-                $scope.songs = songs;
-            });
-
-        };
-
-        var playlistAdd = function () {
-            if ($scope.isFiltered() && $scope.queue.length > 0) {
-                $scope.xbmc.send('Playlist.Add', {
-                    'playlistid': $scope.playlist,
-                    'item': {songid: $scope.queue[0].songid}
-                });
-                $scope.queue = $scope.queue.slice(1);
-                if ($scope.queue.length > 0) {
-                    window.setTimeout(playlistAdd.bind(this), 500);
-                }
-            }
-        }
-
-        $scope.$watch('playlist', function () {
-            playlistAdd();
-        }, true);
-
-        if ($scope.xbmc.isConnected()) {
-            onLoad();
-        } else {
-            $scope.xbmc.register('Websocket.OnConnected', { fn : onLoad, scope : this});
-        }
-
-        $scope.getCover = function (song) {
-            var assetFilter = $filter('asset');
-            var hasCover = typeof $scope.filter !== 'undefined' && song && song.thumbnail !== '';
-            if (hasCover) {
-                return assetFilter(song.thumbnail, $scope.configuration.host.ip);
-            } else {
-                return 'img/backgrounds/album.png';
-            }
-        }
-
-        $scope.isFiltered = function () {
-            return typeof $scope.filter !== 'undefined';
-        }
-
-        $scope.play = function (item, index) {
-            $scope.xbmc.send('Player.Open', {
-                'item': item
-            });
-            if (index + 1 < $scope.songs.length) {
-                $scope.queue = $scope.songs.slice(index + 1);
-            }
-        };
-    }
-])
-angular.module('app')
-    .controller('NavigationCtrl', ['$scope', '$location', '$filter',
-        function ($scope, $location, $filter) {
-            $scope.medias = [
-                {
-                    hash: '/movies',
-                    icon: 'icon-film',
-                    label: 'Movies'
-                },
-                {
-                    hash: '/tvshows',
-                    icon: 'icon-facetime-video',
-                    label: 'TV Shows'
-                },
-                {
-                    hash: '/musics',
-                    icon: 'icon-music',
-                    label: 'Musics'
-                }
-            ];
-            $scope.controls = [
-                {
-                    hash: '/',
-                    icon: 'icon-remote',
-                    label: 'Remote'
-                },
-                {
-                    hash: '/settings',
-                    icon: 'icon-cogs',
-                    label: 'Settings'
-                }
-            ];
-
-            $scope.getLabel = function (item) {
-                if (item) {
-                    return  item.title !== '' ? item.title : item.label;
-                }
-                return '';
-            }
-
-            $scope.go = function (path) {
-                $location.path(path);
-                $scope.toggleDrawer();
-            };
-
-            $scope.hasPoster = function (art) {
-                var result = false;
-                if (art) {
-                    if (art['album.thumb'] || art['tvshow.poster'] ||
-                        art.poster || art.thumb) {
-                        result =  true;
-                    }
-                }
-                return result;
-            };
-
-            $scope.isCurrent = function (hash) {
-                return hash === $location.path() ? 'selected' : '';
-            };
-            $scope.togglePlay = function () {
-                $scope.xbmc.send('Player.PlayPause', {
-                    'playerid': $scope.player.id
-                });
-            };
-            $scope.next = function () {
-                $scope.xbmc.send('Player.GoTo', {
-                    'playerid': $scope.player.id,
-                    'to': 'next'
-                });
-            }
-        }]);
-
-angular.module('app')
-    .config(['$stateProvider', function ($stateProvider) {
-        $stateProvider.state('playing', {
-            url: '/now/playing',
-            views: {
-                header: {templateUrl: 'layout/headers/basic.tpl.html'},
-                body: {
-                    templateUrl: 'now/playing.tpl.html',
-                    controller: 'NowPlayingCtrl'
-                },
-                footer: {templateUrl: 'layout/footers/player.tpl.html', controller: 'FooterCtrl'}
-            }
-        });
-    }])
-    .controller('NowPlayingCtrl', ['$scope',
-        function NowPlayingCtrl($scope) {
-            $scope.loading = true;
-            $scope.showAudioSelect = false;
-            $scope.showSubtitleSelect = false;
-            var onLoad = function () {
-                $scope.xbmc.send('Player.GetActivePlayers', null, true, 'result').then(function (players) {
-                        if (players.length > 0) {
-                            $scope.library.item = $scope.xbmc.send('Player.GetItem', {
-                                'properties': ['title', 'artist', 'albumartist', 'genre',
-                                    'year', 'rating', 'album', 'track', 'duration', 'comment', 'lyrics',
-                                    'musicbrainztrackid', 'musicbrainzartistid', 'musicbrainzalbumid',
-                                    'musicbrainzalbumartistid', 'playcount', 'fanart', 'director', 'trailer',
-                                    'tagline', 'plot', 'plotoutline', 'originaltitle', 'lastplayed', 'writer',
-                                    'studio', 'mpaa', 'cast', 'country', 'imdbnumber', 'premiered', 'productioncode',
-                                    'runtime', 'set', 'showlink', 'streamdetails', 'top250', 'votes', 'firstaired',
-                                    'season', 'episode', 'showtitle', 'thumbnail', 'file', 'resume', 'artistid',
-                                    'albumid', 'tvshowid', 'setid', 'watchedepisodes', 'disc', 'tag', 'art', 'genreid',
-                                    'displayartist', 'albumartistid', 'description', 'theme', 'mood', 'style',
-                                    'albumlabel', 'sorttitle', 'episodeguide', 'uniqueid', 'dateadded', 'channel',
-                                    'channeltype', 'hidden', 'locked', 'channelnumber', 'starttime', 'endtime'],
-                                'playerid': players[0].playerid
-                            }, true, 'result.item').then(function (item) {
-                                    $scope.loading = false;
-                                    return item;
-                                });
-
-                        } else {
-                            $scope.go('/');
-                        }
-                    }
-                )
-            };
-            if ($scope.xbmc.isConnected()) {
-                onLoad();
-            } else {
-                $scope.xbmc.register('Websocket.OnConnected', { fn : onLoad, scope : this});
-            }
-
-            $scope.isTypeVideo = function () {
-                return $scope.player.type === 'video' ||
-                    $scope.player.type === 'movie' ||
-                    $scope.player.type === 'episode';
-            };
-
-            $scope.isSelected = function (current, obj) {
-                if (typeof obj === 'string') {
-                    return obj === current;
-                } else {
-                    return obj.index === current.index;
-                }
-            };
-
-            $scope.onSeekbarChanged = function (newValue) {
-                $scope.xbmc.send('Player.Seek', {
-                    'playerid': $scope.player.id,
-                    'value': newValue});
-            };
-
-            $scope.select = function (type, obj) {
-                var params = {
-                    'playerid': $scope.player.id};
-                var method = '';
-                if (type === 'audio') {
-                    method = 'Player.SetAudioStream';
-                    params.stream = typeof obj === 'string' ? obj : obj.index;
-                    $scope.showAudioSelect = false;
-                    $scope.player.current.audiostream = obj;
-                } else if (type === 'subtitle') {
-                    method = 'Player.SetSubtitle';
-                    params.subtitle = typeof obj === 'string' ? obj : obj.index;
-                    params.enable = true;
-                    $scope.showSubtitleSelect = false;
-                    $scope.player.current.subtitle = obj;
-                }
-                $scope.xbmc.send(method, params);
-            };
-
-            $scope.toggleAudioStreams = function () {
-                $scope.showAudioSelect = !$scope.showAudioSelect;
-            };
-
-            $scope.toggleSubtitles = function () {
-                $scope.showSubtitleSelect = !$scope.showSubtitleSelect;
-            };
-
-
-            $scope.$watch('player.item', function () {
-                $scope.library.item = $scope.player.item;
-            }, true);
-
-        }
-    ])
-
-angular.module('app')
-    .config(['$stateProvider', function ($stateProvider) {
-        $stateProvider.state('playlist', {
-            url: '/now/playlist',
-            views: {
-                header: {templateUrl: 'layout/headers/basic.tpl.html'},
-                body: {
-                    templateUrl: 'now/playlist.tpl.html',
-                    controller: 'NowPlaylistCtrl'
-                }
-            }
-        });
-    }])
-    .controller('NowPlaylistCtrl', ['$scope',
-        function NowPlaylistCtrl($scope) {
-            $scope.loading = true;
-
-            var getItems = function () {
-                $scope.xbmc.send('Playlist.GetItems', {
-                    'playlistid': $scope.playlist,
-                    'properties': ['title', 'art', 'duration', 'runtime', 'thumbnail']}, true, 'result.items').then(function (items) {
-                        $scope.items = items;
-                        $scope.loading = false;
-                    });
-            }
-
-            var onLoad = function () {
-                if ($scope.playlist > -1) {
-                    getItems();
-                } else {
-                    $scope.go('/remote');
-                }
-            };
-            if ($scope.xbmc.isConnected()) {
-                onLoad();
-            } else {
-                $scope.xbmc.register('Websocket.OnConnected', { fn: onLoad, scope: this});
-            }
-
-            var onPlaylistAdd = function (obj) {
-                $scope.loading = true;
-                getItems();
-            }
-
-            var onPlaylistClear = function () {
-                $scope.go('/remote');
-            }
-
-            var onPlaylistRemove = function (obj) {
-                var data = obj.params.data;
-                if (!$scope.loading && $scope.playlist === data.playlistid && typeof $scope.items !== 'undefined') {
-                    $scope.items.splice(data.position);
-                }
-            }
-
-            $scope.xbmc.register('Playlist.OnAdd', { fn: onPlaylistAdd, scope: this});
-            $scope.xbmc.register('Playlist.OnClear', { fn: onPlaylistClear, scope: this});
-            $scope.xbmc.register('Playlist.OnRemove', { fn: onPlaylistRemove, scope: this});
-
-            $scope.isPlaying = function (id) {
-                return  $scope.player.item.id === id;
-            }
-
-            $scope.next = function (index) {
-                $scope.xbmc.send('Player.GoTo', {
-                    'playerid': $scope.player.id,
-                    'to': index
-                });
-            }
-        }
-
-    ]);
-
-angular.module('app')
-    .config(['$stateProvider', function ($stateProvider) {
-        $stateProvider.state('remote', {
-            url: '/',
-            views: {
-                header: {templateUrl: 'layout/headers/basic.tpl.html'},
-                body: {
-                    templateUrl: 'remote/remote.tpl.html',
-                    controller: 'RemoteCtrl'
-                },
-                footer: {templateUrl: 'layout/footers/basic.tpl.html', controller: 'FooterCtrl'}
-            }
-        });
-    }])
-    .controller('RemoteCtrl', ['$scope', '$location',
-        function RemoteCtrl($scope, $location) {
-            var onLoad = function () {
-                $scope.xbmc.send('Application.GetProperties', {
-                    'properties': ['volume']
-                }, true, 'result.volume').then(function(volume) {
-                    $scope.volume = volume;
-                });
-            };
-            if ($scope.xbmc.isConnected()) {
-                onLoad();
-            } else {
-                $scope.xbmc.register('Websocket.OnConnected', { fn : onLoad, scope : this});
-            }
-
-            $scope.setVolume = function (volume) {
-                $scope.volume = Math.max(0, Math.min(volume, 100));
-                $scope.xbmc.send('Application.SetVolume', {'volume': $scope.volume});
-            }
-
-            $scope.toggleMute = function () {
-                $scope.xbmc.send('Application.SetMute', {'mute': 'toggle'});
-            }
-        }]);
-angular.module('app')
-    .config(['$stateProvider', function ($stateProvider) {
-        $stateProvider.state('settings', {
-            url: '/settings',
-            views: {
-                header: {templateUrl: 'layout/headers/basic.tpl.html'},
-                body: {templateUrl: 'settings/wizard.tpl.html', controller: 'WizardCtrl'}
-            }
-        });
-    }])
-    .controller('WizardCtrl', ['$scope',
-        function WizardCtrl($scope) {
-            $scope.save = function () {
-                localStorage.setItem('xbmchost', JSON.stringify($scope.configuration));
-                $scope.xbmc.connect($scope.configuration.host.ip, $scope.configuration.host.port);
-                $scope.go('/');
-            }
-        }]);
-angular.module('app')
-    .config(['$stateProvider', function ($stateProvider) {
-        $stateProvider.state('episode', {
-            url: '/tvshow/:tvshowid/:season/:episodeid',
-            views: {
-                header: {templateUrl: 'layout/headers/basic.tpl.html'},
-                body: {
-                    templateUrl: 'tvshow/details.tpl.html',
-                    controller: 'EpisodeDetailsCtrl'
-                },
-                footer: {templateUrl: 'layout/footers/details.tpl.html', controller: 'FooterCtrl'}
-            }
-        });
-    }])
-    .controller('EpisodeDetailsCtrl', ['$scope', '$stateParams', '$location',
-        function EpisodeDetailsCtrl($scope, $stateParams, $location) {
-            $scope.episodeid = parseInt($stateParams.episodeid);
-            var onLoad = function () {
-                $scope.loading = true;
-                $scope.library.item = $scope.xbmc.send('VideoLibrary.GetEpisodeDetails', {
-                    'episodeid': $scope.episodeid,
-                    'properties': ['title', 'plot', 'rating', 'firstaired', 'runtime', 'thumbnail', 'art']
-                }, true, 'result.episodedetails').then(function (item) {
-                        $scope.loading = false;
-                        item.type = 'episode';
-                        return item;
-                    });
-
-            };
-            if ($scope.xbmc.isConnected()) {
-                onLoad();
-            } else {
-                $scope.xbmc.register('Websocket.OnConnected', { fn : onLoad, scope : this});
-            }
-
-            $scope.play = function (episodeid) {
-                $scope.xbmc.send('Player.Open', {
-                    'item': {
-                        'episodeid': episodeid
-                    }
-                });
-            }
-        }]);
-angular.module('app')
-    .config(['$stateProvider', function ($stateProvider) {
-        $stateProvider.state('episodes', {
-            url: '/tvshow/:tvshowid/:season',
-            views: {
-                header: {templateUrl: 'layout/headers/searchable.tpl.html'},
-                body: {
-                    templateUrl: 'tvshow/episodes.tpl.html',
-                    controller: 'TvShowEpisodesCtrl'
-                }
-            }
-        });
-    }])
-    .controller('TvShowEpisodesCtrl', ['$scope', '$stateParams', '$location',
-        function TvShowEpisodesCtrl($scope, $stateParams, $location) {
-            $scope.loading = true;
-            $scope.tvshowid = parseInt($stateParams.tvshowid);
-            $scope.season = parseInt($stateParams.season);
-            var onLoad = function () {
-                $scope.laoding = true;
-                $scope.episodes = $scope.xbmc.send('VideoLibrary.GetEpisodes', {
-                    'tvshowid': $scope.tvshowid,
-                    'season': $scope.season,
-                    'properties': ['title', 'rating', 'firstaired', 'runtime', 'season', 'episode', 'thumbnail', 'art'],
-                    'limits': {
-                        'start': 0,
-                        'end': 75
-                    },
-                    'sort': {
-                        'order': 'ascending',
-                        'method': 'label'
-                    }
-                }, true, 'result.episodes').then(function (episodes) {
-                        $scope.loading = false;
-                        return episodes;
-                    });
-            };
-            if ($scope.xbmc.isConnected()) {
-                onLoad();
-            } else {
-                $scope.xbmc.register('Websocket.OnConnected', { fn : onLoad, scope : this});
-            }
-        }]);
-angular.module('app')
-    .config(['$stateProvider', function ($stateProvider) {
-        $stateProvider.state('tvshows', {
-            url: '/tvshows',
-            views: {
-                header: {templateUrl: 'layout/headers/searchable.tpl.html'},
-                body: {templateUrl: 'tvshow/list.tpl.html',
-                    controller: 'TvShowListCtrl'}
-            }
-        });
-    }])
-    .controller('TvShowListCtrl', ['$scope',
-        function TvShowListCtrl($scope) {
-            var onLoad = function () {
-                $scope.loading = true;
-                $scope.tvshows = $scope.xbmc.send('VideoLibrary.GetTVShows', {
-                    'limits': {
-                        'start': 0,
-                        'end': 75
-                    },
-                    'properties': ['genre', 'title', 'rating', 'art', 'playcount'],
-                    'sort': {
-                        'order': 'ascending',
-                        'method': 'label'
-                    }
-                }, true, 'result.tvshows').then(function (tvshows) {
-                        $scope.loading = false;
-                        return tvshows;
-                    });
-            };
-            if ($scope.xbmc.isConnected()) {
-                onLoad();
-            } else {
-                $scope.xbmc.register('Websocket.OnConnected', { fn : onLoad, scope : this});
-            }
-        }]);
-angular.module('app')
-    .config(['$stateProvider', function ($stateProvider) {
-        $stateProvider.state('seasons', {
-            url: '/tvshow/:tvshowid',
-            views: {
-                header: {templateUrl: 'layout/headers/searchable.tpl.html'},
-                body: {
-                    templateUrl: 'tvshow/seasons.tpl.html',
-                    controller: 'TvShowSeasonsCtrl'
-                }
-            }
-        });
-    }])
-    .controller('TvShowSeasonsCtrl', ['$scope', '$stateParams', '$location',
-    function TvShowSeasonsCtrl($scope, $stateParams, $location) {
-        $scope.loading = true;
-        $scope.tvshowid = parseInt($stateParams.tvshowid);
-        var onLoad = function () {
-            $scope.xbmc.send('VideoLibrary.GetSeasons', {
-                'tvshowid': $scope.tvshowid,
-                'properties': ['season', 'showtitle', 'fanart', 'thumbnail'],
-                'limits': {
-                    'start': 0,
-                    'end': 75
-                },
-                'sort': {
-                    'order': 'ascending',
-                    'method': 'label'
-                }
-            }, true, 'result.seasons').then(function (seasons) {
-                    $scope.seasons = seasons || [];
-                    $scope.loading = false;
-                    if (seasons.length === 1) {
-                        $scope.go('/tvshow/' + $scope.tvshowid + '/' + seasons[0].season);
-                    }
-                });
-        };
-        if ($scope.xbmc.isConnected()) {
-            onLoad();
-        } else {
-            $scope.xbmc.register('Websocket.OnConnected', { fn : onLoad, scope : this});
-        }
-    }])
 /* -*- Mode: Java; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*- /
 /* vim: set shiftwidth=2 tabstop=2 autoindent cindent expandtab: */
 
@@ -1983,6 +894,706 @@ var GestureDetector = (function() {
 }());
 
 
+var RAL = {
+  debug: !1
+};
+RAL.Heap = function() {
+  this.items = []
+}, RAL.Heap.prototype = {
+  getNextHighestPriority: function() {
+    var e = 1;
+    return this.items[0] && (e = this.items[0].priority + 1), e
+  },
+  parentIndex: function(e) {
+    return Math.floor(.5 * e)
+  },
+  leftChildIndex: function(e) {
+    return 2 * e
+  },
+  rightChildIndex: function(e) {
+    return 2 * e + 1
+  },
+  get: function(e) {
+    var t = null;
+    return e >= 1 && this.items[e - 1] && (t = this.items[e - 1]), t
+  },
+  set: function(e, t) {
+    this.items[e - 1] = t
+  },
+  swap: function(e, t) {
+    var n = this.get(e);
+    this.set(e, this.get(t)), this.set(t, n)
+  },
+  upHeap: function(e) {
+    var t = null,
+      n = null,
+      i = null,
+      o = !1;
+    do o = !1, i = this.parentIndex(e), t = this.get(e), n = this.get(i), o = null !== n && t.priority > n.priority, o && (this.swap(e, i), e = i); while (o)
+  },
+  downHeap: function(e) {
+    var t = null,
+      n = null,
+      i = null,
+      o = null,
+      r = null,
+      s = null,
+      a = !1;
+    do a = !1, o = this.leftChildIndex(e), r = this.rightChildIndex(e), t = this.get(e) && this.get(e).priority, n = this.get(o) && this.get(o).priority, i = this.get(r) && this.get(r).priority, null === n && (n = Number.NEGATIVE_INFINITY), null === i && (i = Number.NEGATIVE_INFINITY), s = Math.max(n, i), s > t && (i === s ? (this.swap(e, r), e = r) : (this.swap(e, o), e = o), a = !0); while (a)
+  },
+  add: function(e) {
+    this.items.push(e), this.upHeap(this.items.length)
+  },
+  remove: function() {
+    var e = null;
+    return this.items.length && (this.swap(1, this.items.length), e = this.get(this.items.length), this.items.length -= 1, this.downHeap(1)), e
+  }
+}, RAL.Sanitiser = function() {
+  function e(e) {
+    return e.replace(/.*?:\/\//, "", e)
+  }
+  return {
+    cleanURL: e
+  }
+}(), RAL.CacheParser = function() {
+  function e(e) {
+    var t = /max\-age=(\d+)/gi,
+      n = /Cache-Control:.*?no\-cache/gi,
+      i = /Cache-Control:.*?no\-store/gi,
+      o = /Cache-Control:.*?must\-revalidate/gi,
+      r = /Expires:\s(.*)/gi,
+      s = [],
+      a = t.exec(e),
+      l = Date.now();
+    return i.test(e) && s.push("Cache-Control: no-store is set"), n.test(e) && s.push("Cache-Control: no-cache is set"), o.test(e) && s.push("Cache-Control: must-revalidate is set"), null !== a ? l = Date.now() + 1e3 * a[1] : (a = r.exec(e), null !== a ? l = Date.parse(a[1]) : s.push("Cache-Control: max-age and Expires: headers are not set")), {
+      headers: e,
+      cacheable: 0 === s.length,
+      useBy: l,
+      warnings: s
+    }
+  }
+  return {
+    parse: e
+  }
+}(), RAL.FileSystem = function() {
+  function e() {
+    return l
+  }
+
+  function t(e) {
+    c.push(e)
+  }
+
+  function n(e, t, n) {
+    l && (e = RAL.Sanitiser.cleanURL(e), h.getFile(e, {}, function(e) {
+      t(e.toURL())
+    }, n))
+  }
+
+  function i(e, t, n) {
+    l && (e = RAL.Sanitiser.cleanURL(e), h.getFile(e, {}, function(e) {
+      e.file(function(e) {
+        var n = new FileReader;
+        n.onloadend = function() {
+          t(this.result)
+        }, n.readAsText(e)
+      })
+    }, n))
+  }
+
+  function o(e, t, n) {
+    if (l) {
+      e = RAL.Sanitiser.cleanURL(e);
+      var i = e.split("/");
+      i.pop(), r(h, i, function() {
+        h.getFile(e, {
+          create: !0
+        }, function(e) {
+          e.createWriter(function(i) {
+            i.onwriteend = function() {
+              i.onwriteend = function() {
+                n(e.toURL())
+              }, i.truncate(t.size)
+            }, i.onerror = function(e) {
+              console.warn("Write failed: " + e.toString())
+            }, i.write(t)
+          }, u.onError)
+        }, u.onError)
+      })
+    }
+  }
+
+  function r(e, t, n) {
+    ("." === t[0] || "" === t[0]) && (t = t.slice(1)), t.length ? e.getDirectory(t[0], {
+      create: !0
+    }, function(e) {
+      t.length && r(e, t.slice(1), n)
+    }, u.onError) : n()
+  }
+
+  function s(e, t, n) {
+    l && h.getDirectory(e, {}, function(e) {
+      e.removeRecursively(t, u.onError)
+    }, n || u.onError)
+  }
+
+  function a(e, t, n) {
+    l && h.getFile(e, {}, function(e) {
+      e.remove(t, u.onError)
+    }, n || u.onError)
+  }
+  var l = !1,
+    c = [],
+    h = null,
+    u = {
+      onError: function(e) {
+        var t = "";
+        switch (e.code) {
+          case FileError.QUOTA_EXCEEDED_ERR:
+            t = "QUOTA_EXCEEDED_ERR";
+            break;
+          case FileError.NOT_FOUND_ERR:
+            t = "NOT_FOUND_ERR";
+            break;
+          case FileError.SECURITY_ERR:
+            t = "SECURITY_ERR";
+            break;
+          case FileError.INVALID_MODIFICATION_ERR:
+            t = "INVALID_MODIFICATION_ERR";
+            break;
+          case FileError.INVALID_STATE_ERR:
+            t = "INVALID_STATE_ERR";
+            break;
+          default:
+            t = "Unknown Error"
+        }
+        console.error("Error: " + t, e)
+      },
+      onInitialised: function(e) {
+        if (h = e.root, l = !0, c.length)
+          for (var t = c.length; t--;) c[t]()
+      }
+    };
+  return function(e) {
+    e = e || 10, window.requestFileSystem = window.requestFileSystem || window.webkitRequestFileSystem, window.resolveLocalFileSystemURL = window.resolveLocalFileSystemURL || window.webkitResolveLocalFileSystemURL, window.requestFileSystem && window.requestFileSystem(window.TEMPORARY, 1024 * 1024 * e, u.onInitialised, u.onError)
+  }(), {
+    isReady: e,
+    registerOnReady: t,
+    getPath: n,
+    getDataAsText: i,
+    set: o,
+    removeFile: a,
+    removeDir: s
+  }
+}(), RAL.FileManifest = function() {
+  function e() {
+    return h
+  }
+
+  function t(e) {
+    u.push(e)
+  }
+
+  function n(e, t) {
+    var n = RAL.Sanitiser.cleanURL(e),
+      i = c[n] || null;
+    t(i)
+  }
+
+  function i(e, t, n) {
+    var i = RAL.Sanitiser.cleanURL(e);
+    c[i] = t, a(n)
+  }
+
+  function o() {
+    c = {}, a()
+  }
+
+  function r() {
+    s("{}")
+  }
+
+  function s(e) {
+    if (h = !0, c = JSON.parse(e), u.length)
+      for (var t = u.length; t--;) u[t]()
+  }
+
+  function a(e) {
+    var t = new Blob([JSON.stringify(c)], {
+      type: "application/json"
+    });
+    RAL.FileSystem.set("manifest.json", t, function() {
+      e && e()
+    })
+  }
+
+  function l() {
+    RAL.FileSystem.getDataAsText("manifest.json", s, r)
+  }
+  var c = null,
+    h = !1,
+    u = [];
+  return RAL.FileSystem.isReady() ? l() : RAL.FileSystem.registerOnReady(l), {
+    isReady: e,
+    registerOnReady: t,
+    get: n,
+    set: i,
+    reset: o
+  }
+}(), RAL.RemoteFile = function() {}, RAL.RemoteFile.prototype = {
+  element: null,
+  src: null,
+  autoLoad: !1,
+  ignoreCacheHeaders: !1,
+  timeToLive: 12096e5,
+  priority: 0,
+  loaded: !1,
+  wURL: window.URL || window.webkitURL,
+  callbacks: {
+    onCacheError: function(e) {
+      e.src = this.src, this.sendEvent("cacheerror", e)
+    },
+    onRemoteFileLoaded: function(e, t) {
+      if (this.ignoreCacheHeaders && (t.cacheable = !0, t.useBy += this.timeToLive), t.cacheable) RAL.FileSystem.set(this.src, e, this.callbacks.onFileSystemSet.bind(this, t));
+      else {
+        var n = this.wURL.createObjectURL(e);
+        this.callbacks.onLocalFileLoaded.call(this, n), this.callbacks.onCacheError.call(this, t)
+      }
+      this.sendEvent("remoteloaded", t)
+    },
+    onRemoteFileUnavailable: function() {
+      this.sendEvent("remoteunavailable")
+    },
+    onLocalFileLoaded: function(e) {
+      this.loaded = !0, this.sendEvent("loaded", e)
+    },
+    onLocalFileUnavailable: function() {
+      this.showPlaceholder(), this.loadFromRemote(), this.sendEvent("localunavailable")
+    },
+    onFileSystemSet: function(e) {
+      RAL.FileManifest.set(this.src, e, this.callbacks.onFileManifestSet.bind(this))
+    },
+    onFileManifestSet: function() {
+      this.load()
+    },
+    onFileManifestGet: function(e) {
+      var t = Date.now();
+      null !== e ? e.useBy > t || !RAL.NetworkMonitor.isOnline() ? RAL.FileSystem.getPath(this.src, this.callbacks.onLocalFileLoaded.bind(this), this.callbacks.onLocalFileUnavailable.bind(this)) : this.loadFromRemote() : this.loadFromRemote()
+    }
+  },
+  sendEvent: function(e, t) {
+    this.checkForElement();
+    var n = document.createEvent("Event");
+    n.initEvent(e, !0, !0), t && (n.data = t), this.element.dispatchEvent(n)
+  },
+  loadFromRemote: function() {
+    RAL.Loader.load(this.src, "blob", this.callbacks.onRemoteFileLoaded.bind(this), this.callbacks.onRemoteFileUnavailable.bind(this)), this.sendEvent("remoteloadstart")
+  },
+  load: function() {
+    RAL.FileManifest.get(this.src, this.callbacks.onFileManifestGet.bind(this))
+  },
+  checkForElement: function() {
+    this.element || (this.element = document.createElement("span"))
+  },
+  addEventListener: function(e, t, n) {
+    this.checkForElement(), this.element.addEventListener(e, t, n)
+  }
+}, RAL.RemoteImage = function(e) {
+  RAL.RemoteFile.call(this), e = e || {}, this.element = e.element || document.createElement("img"), this.src = this.element.dataset.src || e.src, this.width = this.element.width || e.width || null, this.height = this.element.height || e.height || null, this.placeholder = this.element.dataset.placeholder || null, this.priority = e.priority || 0, this.addEventListener("remoteloadstart", this.showPlaceholder.bind(this)), this.addEventListener("loaded", this.showImage.bind(this)), "undefined" != typeof e.autoLoad && (this.autoLoad = e.autoLoad), "undefined" != typeof e.ignoreCacheHeaders && (this.ignoreCacheHeaders = e.ignoreCacheHeaders), this.ignoreCacheHeaders && "undefined" != typeof this.timeToLive && (this.timeToLive = e.timeToLive), this.autoLoad ? this.load() : this.showPlaceholder()
+}, RAL.RemoteImage.prototype = new RAL.RemoteFile, RAL.RemoteImage.prototype.showPlaceholder = function() {
+  null !== this.placeholder && (this.element.style["-webkit-transition"] = "background-image 0.5s ease-out", this.showImage({
+    data: this.placeholder
+  }))
+}, RAL.RemoteImage.prototype.showImage = function(e) {
+  var t = e.data,
+    n = new Image,
+    i = function(e) {
+      this.wURL.revokeObjectURL(e)
+    }.bind(this, t),
+    o = function() {
+      var e = this.width || n.naturalWidth,
+        o = n.naturalHeight * this.width / n.naturalWidth;
+    
+     
+      this.element.src = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7", this.element.style.width = e + "px", this.element.style.height = o + "px", this.element.style.backgroundImage = "url(" + t + ")", this.element.style.backgroundSize = e + "px " + o + "px", /blob:/.test(t) && setTimeout(i, 100)
+    };
+  n.onload = o.bind(this), n.src = t
+}, RAL.Loader = function() {
+  function e(e, t, n, i) {
+    e.abort(), this.load(t, n, i)
+  }
+
+  function t(i, o, r, s) {
+    if (RAL.NetworkMonitor.isOnline()) {
+      var a = new XMLHttpRequest;
+      a.responseType = o, a.onerror = n.onError.bind(this, s), a.onload = n.onLoad.bind(this, i, r, s), a.open("GET", i, !0), a.send(), RAL.NetworkMonitor.registerForOffline(e.bind(this, a, i, r, s))
+    } else RAL.NetworkMonitor.registerForOnline(t.bind(this, i, r, s))
+  }
+  var n = {
+    onLoad: function(e, t, n, i) {
+      var o = i.target,
+        r = o.response,
+        s = RAL.CacheParser.parse(o.getAllResponseHeaders());
+      4 === o.readyState && (200 === o.status ? t(r, s) : n(i))
+    },
+    onError: function(e, t) {
+      e(t)
+    }
+  };
+  return {
+    load: t
+  }
+}(), RAL.NetworkMonitor = function() {
+  function e(e) {
+    i.push(e)
+  }
+
+  function t(e) {
+    o.push(e)
+  }
+
+  function n() {
+    return window.navigator.onLine
+  }
+  var i = [],
+    o = [];
+  return window.addEventListener("online", function() {
+    for (var e = i.length, t = null; e--;) t = i.pop(), t()
+  }), window.addEventListener("offline", function() {
+    for (var e = o.length, t = null; e--;) t = o.pop(), t()
+  }), {
+    registerForOnline: e,
+    registerForOffline: t,
+    isOnline: n
+  }
+}(), RAL.Queue = function() {
+  function e() {
+    return r.getNextHighestPriority()
+  }
+
+  function t(e) {
+    a = e
+  }
+
+  function n(e, t) {
+    "undefined" == typeof e.priority && (e.priority = r.getNextHighestPriority()), r.add(e), t && i()
+  }
+
+  function i() {
+    for (; a > s;) {
+      if (nextFile = r.remove(), null === nextFile) {
+        RAL.debug && console.log("[Connections: " + s + "] - No more images queued");
+        break
+      }
+      nextFile.addEventListener("loaded", l.onFileLoaded), nextFile.load(), RAL.debug && console.log("[Connections: " + s + "] - Loading " + nextFile.src), s++
+    }
+  }
+
+  function o() {
+    r.clear()
+  }
+  var r = new RAL.Heap,
+    s = 0,
+    a = 6,
+    l = {
+      onFileLoaded: function() {
+        RAL.debug && console.log("[Connections: " + s + "] - File loaded"), s--, i()
+      }
+    };
+  return {
+    getNextHighestPriority: e,
+    setMaxConnections: t,
+    add: n,
+    clear: o,
+    start: i
+  }
+}(); //# sourceMappingURL=ral.map
+/*
+ * angular-ui-bootstrap
+ * http://angular-ui.github.io/bootstrap/
+
+ * Version: 0.10.0 - 2014-01-14
+ * License: MIT
+ */
+angular.module("ui.bootstrap", ["ui.bootstrap.timepicker"]);
+angular.module('ui.bootstrap.timepicker', [])
+
+.constant('timepickerConfig', {
+  hourStep: 1,
+  minuteStep: 1,
+  showMeridian: true,
+  meridians: null,
+  readonlyInput: false,
+  mousewheel: true
+})
+
+.directive('timepicker', ['$parse', '$log', 'timepickerConfig', '$locale', function ($parse, $log, timepickerConfig, $locale) {
+  return {
+    restrict: 'EA',
+    require:'?^ngModel',
+    replace: true,
+    scope: {},
+    templateUrl: 'template/timepicker/timepicker.html',
+    link: function(scope, element, attrs, ngModel) {
+      if ( !ngModel ) {
+        return; // do nothing if no ng-model
+      }
+
+      var selected = new Date(),
+          meridians = angular.isDefined(attrs.meridians) ? scope.$parent.$eval(attrs.meridians) : timepickerConfig.meridians || $locale.DATETIME_FORMATS.AMPMS;
+
+      var hourStep = timepickerConfig.hourStep;
+      if (attrs.hourStep) {
+        scope.$parent.$watch($parse(attrs.hourStep), function(value) {
+          hourStep = parseInt(value, 10);
+        });
+      }
+
+      var minuteStep = timepickerConfig.minuteStep;
+      if (attrs.minuteStep) {
+        scope.$parent.$watch($parse(attrs.minuteStep), function(value) {
+          minuteStep = parseInt(value, 10);
+        });
+      }
+
+      // 12H / 24H mode
+      scope.showMeridian = timepickerConfig.showMeridian;
+      if (attrs.showMeridian) {
+        scope.$parent.$watch($parse(attrs.showMeridian), function(value) {
+          scope.showMeridian = !!value;
+
+          if ( ngModel.$error.time ) {
+            // Evaluate from template
+            var hours = getHoursFromTemplate(), minutes = getMinutesFromTemplate();
+            if (angular.isDefined( hours ) && angular.isDefined( minutes )) {
+              selected.setHours( hours );
+              refresh();
+            }
+          } else {
+            updateTemplate();
+          }
+        });
+      }
+
+      // Get scope.hours in 24H mode if valid
+      function getHoursFromTemplate ( ) {
+        var hours = parseInt( scope.hours, 10 );
+        var valid = ( scope.showMeridian ) ? (hours > 0 && hours < 13) : (hours >= 0 && hours < 24);
+        if ( !valid ) {
+          return undefined;
+        }
+
+        if ( scope.showMeridian ) {
+          if ( hours === 12 ) {
+            hours = 0;
+          }
+          if ( scope.meridian === meridians[1] ) {
+            hours = hours + 12;
+          }
+        }
+        return hours;
+      }
+
+      function getMinutesFromTemplate() {
+        var minutes = parseInt(scope.minutes, 10);
+        return ( minutes >= 0 && minutes < 60 ) ? minutes : undefined;
+      }
+
+      function pad( value ) {
+        return ( angular.isDefined(value) && value.toString().length < 2 ) ? '0' + value : value;
+      }
+
+      // Input elements
+      var inputs = element.find('input'), hoursInputEl = inputs.eq(0), minutesInputEl = inputs.eq(1);
+
+      // Respond on mousewheel spin
+      var mousewheel = (angular.isDefined(attrs.mousewheel)) ? scope.$eval(attrs.mousewheel) : timepickerConfig.mousewheel;
+      if ( mousewheel ) {
+
+        var isScrollingUp = function(e) {
+          if (e.originalEvent) {
+            e = e.originalEvent;
+          }
+          //pick correct delta variable depending on event
+          var delta = (e.wheelDelta) ? e.wheelDelta : -e.deltaY;
+          return (e.detail || delta > 0);
+        };
+
+        hoursInputEl.bind('mousewheel wheel', function(e) {
+          scope.$apply( (isScrollingUp(e)) ? scope.incrementHours() : scope.decrementHours() );
+          e.preventDefault();
+        });
+
+        minutesInputEl.bind('mousewheel wheel', function(e) {
+          scope.$apply( (isScrollingUp(e)) ? scope.incrementMinutes() : scope.decrementMinutes() );
+          e.preventDefault();
+        });
+      }
+
+      scope.readonlyInput = (angular.isDefined(attrs.readonlyInput)) ? scope.$eval(attrs.readonlyInput) : timepickerConfig.readonlyInput;
+      if ( ! scope.readonlyInput ) {
+
+        var invalidate = function(invalidHours, invalidMinutes) {
+          ngModel.$setViewValue( null );
+          ngModel.$setValidity('time', false);
+          if (angular.isDefined(invalidHours)) {
+            scope.invalidHours = invalidHours;
+          }
+          if (angular.isDefined(invalidMinutes)) {
+            scope.invalidMinutes = invalidMinutes;
+          }
+        };
+
+        scope.updateHours = function() {
+          var hours = getHoursFromTemplate();
+
+          if ( angular.isDefined(hours) ) {
+            selected.setHours( hours );
+            refresh( 'h' );
+          } else {
+            invalidate(true);
+          }
+        };
+
+        hoursInputEl.bind('blur', function(e) {
+          if ( !scope.validHours && scope.hours < 10) {
+            scope.$apply( function() {
+              scope.hours = pad( scope.hours );
+            });
+          }
+        });
+
+        scope.updateMinutes = function() {
+          var minutes = getMinutesFromTemplate();
+
+          if ( angular.isDefined(minutes) ) {
+            selected.setMinutes( minutes );
+            refresh( 'm' );
+          } else {
+            invalidate(undefined, true);
+          }
+        };
+
+        minutesInputEl.bind('blur', function(e) {
+          if ( !scope.invalidMinutes && scope.minutes < 10 ) {
+            scope.$apply( function() {
+              scope.minutes = pad( scope.minutes );
+            });
+          }
+        });
+      } else {
+        scope.updateHours = angular.noop;
+        scope.updateMinutes = angular.noop;
+      }
+
+      ngModel.$render = function() {
+        var date = ngModel.$modelValue ? new Date( ngModel.$modelValue ) : null;
+
+        if ( isNaN(date) ) {
+          ngModel.$setValidity('time', false);
+          $log.error('Timepicker directive: "ng-model" value must be a Date object, a number of milliseconds since 01.01.1970 or a string representing an RFC2822 or ISO 8601 date.');
+        } else {
+          if ( date ) {
+            selected = date;
+          }
+          makeValid();
+          updateTemplate();
+        }
+      };
+
+      // Call internally when we know that model is valid.
+      function refresh( keyboardChange ) {
+        makeValid();
+        ngModel.$setViewValue( new Date(selected) );
+        updateTemplate( keyboardChange );
+      }
+
+      function makeValid() {
+        ngModel.$setValidity('time', true);
+        scope.invalidHours = false;
+        scope.invalidMinutes = false;
+      }
+
+      function updateTemplate( keyboardChange ) {
+        var hours = selected.getHours(), minutes = selected.getMinutes();
+
+        if ( scope.showMeridian ) {
+          hours = ( hours === 0 || hours === 12 ) ? 12 : hours % 12; // Convert 24 to 12 hour system
+        }
+        scope.hours =  keyboardChange === 'h' ? hours : pad(hours);
+        scope.minutes = keyboardChange === 'm' ? minutes : pad(minutes);
+        scope.meridian = selected.getHours() < 12 ? meridians[0] : meridians[1];
+      }
+
+      function addMinutes( minutes ) {
+        var dt = new Date( selected.getTime() + minutes * 60000 );
+        selected.setHours( dt.getHours(), dt.getMinutes() );
+        refresh();
+      }
+
+      scope.incrementHours = function() {
+        addMinutes( hourStep * 60 );
+      };
+      scope.decrementHours = function() {
+        addMinutes( - hourStep * 60 );
+      };
+      scope.incrementMinutes = function() {
+        addMinutes( minuteStep );
+      };
+      scope.decrementMinutes = function() {
+        addMinutes( - minuteStep );
+      };
+      scope.toggleMeridian = function() {
+        addMinutes( 12 * 60 * (( selected.getHours() < 12 ) ? 1 : -1) );
+      };
+    }
+  };
+}]);
+
+"use strict";
+angular.module('directives.image', [])
+    .directive('source', function () {
+        return function (scope, elm, attrs) {
+            var asChromeApp = false;
+            try {
+                asChromeApp = typeof window.localStorage === 'undefined';
+            } catch (e) {
+                asChromeApp = true;
+            }
+            if(asChromeApp) {
+                var remoteImage = new RAL.RemoteImage({
+                    element : elm[0],
+                    src : attrs.source,
+                    width : elm[0].offsetWidth
+                });
+                RAL.Queue.add(remoteImage, true);
+            } else {
+                elm[0].src = attrs.source;
+            }
+        };
+    });
+"use strict";
+angular.module('directives.keybinding', [])
+    .directive('keybinding', function () {
+    return {
+        restrict: 'E',
+        link: function (scope, el, attrs) {
+            var fn = function (e) {
+                if (e.preventDefault) {
+                    e.preventDefault();
+                } else {
+                    // internet explorer
+                    e.returnValue = false;
+                }
+                scope.$apply(attrs.invoke);
+            };
+            Mousetrap.bind(attrs.on, fn);
+            el.on('$destroy', function() {
+                Mousetrap.unbind(attrs.on);
+            });
+        }
+    };
+});
 "use strict";
 angular.module('directives.rating', [])
     .directive('rating', function () {
@@ -2032,6 +1643,7 @@ angular.module('directives.seekbar', [])
             link: function (scope, elem, attrs) {
                 var thumb = elem.find('button');
                 var progress = elem.find('progress');
+                var body = angular.element(document).find('body');
                 var moving = false;
                 var newValue = -1;
 
@@ -2056,17 +1668,16 @@ angular.module('directives.seekbar', [])
                     return {left: offsetLeft, top: offsetTop};
                 }
 
-                var offsetLeft = offset(progress).left;
-
                 var update = function (value) {
                     thumb.css('left', value + '%');
                     progress.attr('value', Math.round(value));
                 }
 
-                progress.bind('touchstart', function (evt) {
+                progress.bind('click touchstart', function (evt) {
                     evt.stopPropagation();
-                    var x = evt.touches[0].clientX;
-                    var percent = (x - offsetLeft) / progress.prop('offsetWidth');
+                    var target = evt.touches ? evt.touches[0] : evt;
+                    var x = target.clientX;
+                    var percent = (x - offset(progress).left) / progress.prop('offsetWidth');
                     if (percent < 0)
                         percent = 0;
                     if (percent > 1)
@@ -2075,28 +1686,36 @@ angular.module('directives.seekbar', [])
                     scope.onSeekbarChanged({newValue: parseInt(progress.attr('value'))});
                 });
 
-                thumb.bind('touchstart', function (evt) {
+                thumb.bind('mousedown touchstart', function (evt) {
                     evt.stopPropagation();
                     thumb.addClass('active');
                     moving = true;
                 });
-                thumb.bind('touchmove', function (evt) {
+                var onMove = function (evt) {
                     evt.stopPropagation();
                     if (moving) {
-                        var x = evt.touches[0].clientX;
-                        var percent = (x - offsetLeft) / progress.prop('offsetWidth');
+                        var target = evt.touches ? evt.touches[0] : evt;
+                        var x = target.clientX;
+                        var percent = (x - offset(progress).left) / progress.prop('offsetWidth');
                         if (percent < 0)
                             percent = 0;
                         if (percent > 1)
                             percent = 1;
                         update(scope.seekbarMax * percent);
                     }
-                });
-                thumb.bind('touchend', function () {
-                    scope.onSeekbarChanged({newValue: parseInt(progress.attr('value'))});
-                    moving = false;
-                    thumb.removeClass('active');
-                });
+                };
+                thumb.bind('touchmove', onMove);
+                body.bind('mousemove', onMove);
+
+                var onMoveEnd = function () {
+                    if(moving) {
+                        scope.onSeekbarChanged({newValue: parseInt(progress.attr('value'))});
+                        moving = false;
+                        thumb.removeClass('active');
+                    }
+                }
+                thumb.bind('touchend', onMoveEnd);
+                body.bind('mouseup', onMoveEnd);
                 scope.$watch('seekbarValue', function (newVal, oldVal) {
                     if (newVal && !moving) {
                         scope.seekbarValue = newVal;
@@ -2139,6 +1758,12 @@ angular.module('directives.tap', [])
                 });
             }
             else {
+                elm.bind('mousedown', function () {
+                    elm.addClass('active');
+                });
+                elm.bind('mouseup', function () {
+                    elm.removeClass('active');
+                });
                 elm.bind('click', function () {
                     scope.$apply(attrs.ngTap);
                 });
@@ -2225,115 +1850,15 @@ angular.module('filters.xbmc', [
     'filters.xbmc.thumb',
     'filters.xbmc.time']);
 "use strict";
-angular.module('services.xbmc.mock', [])
-    .factory('xbmc', ['$rootScope', '$q', '$http', '$parse',
-        function ($rootScope, $q, $http, $parse) {
-            // We return this object to anything injecting our service
+angular.module('services.io', ['services.websocket'])
+    .factory('io', ['$rootScope', '$q', '$parse', '$interval', 'websocket',
+        function($rootScope, $q, $parse, $interval, websocket) {
             var factory = {};
-            var isConnected = false;
-            factory.isConnected = function () {
-                return isConnected;
-            }
-
-            factory.register = function (method, callback) {
-
-            }
-
-            factory.send = function (method, params, shouldDefer, pathExpr) {
-                var defer = $q.defer();
-                $http.get('/app/data/' + method + '.json').success(function (data) {
-                    var obj = data;
-                    if (pathExpr) {
-                        var getter = $parse(pathExpr);
-                        obj = getter(data);
-                    } else {
-                        obj = data;
-                    }
-                    window.setTimeout(function () {
-                        $rootScope.$apply(function () {
-                            defer.resolve(obj);
-                        });
-                    }, Math.round(Math.random() * 5000))
-                });
-                return defer.promise;
-            }
-
-            factory.unregister = function (method, callback) {
-
-            }
-
-            factory.connect = function () {
-                isConnected = true;
-            }
-
-            return factory;
-        }
-    ])
-
-angular.module('services.websocket', [])
-    .factory('websocket', function () {
-        // We return this object to anything injecting our service
-        var factory = {};
-        var isWSConnected = false;
-        // Create our websocket object with the address to the websocket
-        var ws = null;
-        factory.isConnected = function () {
-            return isWSConnected;
-        }
-
-        factory.connect = function (url, connectCallback, disconnectCallback) {
-            ws = new WebSocket(url);
-            ws.onopen = function () {
-                isWSConnected = true;
-                if (connectCallback) {
-                    connectCallback();
-                }
-            };
-
-            ws.onclose = function () {
-                isWSConnected = false;
-                disconnectCallback();
-                window.setTimeout(function () {
-                    factory.connect(url, connectCallback)
-                }.bind(this), 10000);
-            };
-
-            ws.onerror = function () {
-                isWSConnected = false;
-                window.setTimeout(function () {
-                    factory.connect(url, connectCallback)
-                }.bind(this), 10000);
-            };
-        };
-
-        factory.disconnect = function () {
-            ws.close();
-        };
-
-        factory.send = function (request) {
-            if (isWSConnected) {
-                ws.send(JSON.stringify(request));
-            }
-        };
-
-        factory.subscribe = function (callback) {
-            if (isWSConnected) {
-                ws.onmessage = function (evt) {
-                    callback(evt);
-                }
-            }
-        }
-        return factory;
-    })
-angular.module('services.xbmc', ['services.websocket'])
-    .factory('xbmc', ['$rootScope', '$q', '$parse', 'websocket',
-        function ($rootScope, $q, $parse, websocket) {
-            // We return this object to anything injecting our service
-            var factory = {};
-            var resolved = false;
             var callbacks = {};
             var currentCallbackId = 0;
             var notifications = {};
+
+            var timeout = 60000;
 
             // This creates a new callback ID for a request
             function getCallbackId() {
@@ -2393,14 +1918,6 @@ angular.module('services.xbmc', ['services.websocket'])
                     }
                 }
             };
-            factory.isConnected = function () {
-                return websocket.isConnected();
-            }
-
-            factory.register = function (method, callback) {
-                notifications[method] = notifications[method] || [];
-                notifications[method].push(callback);
-            }
 
             factory.send = function (method, params, shouldDefer, pathExpr) {
                 shouldDefer = shouldDefer || false;
@@ -2419,9 +1936,19 @@ angular.module('services.xbmc', ['services.websocket'])
                 }
                 websocket.send(request);
                 return shouldDefer ? defer.promise : 0;
+            };
+
+
+            factory.isConnected = function() {
+                return websocket.isConnected();
             }
 
-            factory.unregister = function (method, callback) {
+            factory.register = function(method, callback) {
+                notifications[method] = notifications[method] || [];
+                notifications[method].push(callback);
+            }
+
+            factory.unregister = function(method, callback) {
                 notifications[method] = notifications[method] || [];
                 var indexOf = notifications[method].indexOf(callback);
                 if (indexOf > -1) {
@@ -2429,15 +1956,1551 @@ angular.module('services.xbmc', ['services.websocket'])
                 }
             }
 
-            factory.connect = function (url, port) {
+            factory.connect = function(url, port) {
                 websocket.connect('ws://' + url + ':' + port + '/jsonrpc', onConnected, onDiconnected);
             }
 
+            var canceljob = function() {
+                angular.forEach(callbacks, function(callback, key) {
+                    var now = Date.now();
+                    if (now - callback.timestamp > timeout) {
+                        callback.cb.reject();
+                        delete callbacks[key];
+                    }
+                });
+            };
+
+            $interval(canceljob, 1000)
 
             return factory;
         }
     ])
-angular.module('templates.app', ['layout/footers/basic.tpl.html', 'layout/footers/details.tpl.html', 'layout/footers/player.tpl.html', 'layout/headers/basic.tpl.html', 'layout/headers/searchable.tpl.html', 'movie/details.tpl.html', 'movie/list.tpl.html', 'music/albums.tpl.html', 'music/artists.tpl.html', 'music/musics.tpl.html', 'music/songs.tpl.html', 'navigation/navigation.tpl.html', 'now/playing.tpl.html', 'now/playlist.tpl.html', 'remote/remote.tpl.html', 'settings/wizard.tpl.html', 'tvshow/details.tpl.html', 'tvshow/episodes.tpl.html', 'tvshow/list.tpl.html', 'tvshow/seasons.tpl.html']);
+"use strict";
+angular.module('services.io.mock', [])
+    .factory('io', ['$rootScope', '$q', '$http', '$parse',
+        function ($rootScope, $q, $http, $parse) {
+            // We return this object to anything injecting our service
+            var factory = {};
+            var isConnected = false;
+            factory.isConnected = function () {
+                return isConnected;
+            }
+
+            factory.register = function (method, callback) {
+
+            }
+
+            factory.send = function (method, params, shouldDefer, pathExpr) {
+                var defer = $q.defer();
+                $http.get('/js/data/' + method + '.json').success(function (data) {
+                    var obj = data;
+                    if (pathExpr) {
+                        var getter = $parse(pathExpr);
+                        obj = getter(data);
+                    } else {
+                        obj = data;
+                    }
+                    window.setTimeout(function () {
+                        $rootScope.$apply(function () {
+                            defer.resolve(obj);
+                        });
+                    }, Math.round(Math.random() * 1000))
+                });
+                return defer.promise;
+            }
+
+            factory.unregister = function (method, callback) {
+
+            }
+
+            factory.connect = function () {
+                isConnected = true;
+            }
+
+            return factory;
+        }
+    ])
+angular.module('services.storage', [])
+    .provider('storage', function () {
+        var asChromeApp = false;
+        try {
+            asChromeApp = typeof window.localStorage === 'undefined';
+        } catch (e) {
+            asChromeApp = true;
+        }
+        this.getItem = function (key, cb) {
+            if(!asChromeApp) {
+                cb(window.localStorage.getItem(key));
+            } else {
+                chrome.storage.local.get(key, function(items){
+                    cb(items[key] || null);
+                })
+            }
+        }
+
+        this.setItem = function (key, value) {
+             if(!asChromeApp) {
+                window.localStorage.setItem(key, value);
+            } else {
+                var items = {};
+                items[key] = value;
+                chrome.storage.local.set(items);
+            }
+        };
+
+        this.$get = function () {
+          return {
+            getItem: this.getItem,
+            setItem: this.setItem
+          }
+        };
+    });
+
+angular.module('services.websocket', [])
+    .factory('websocket', function () {
+        // We return this object to anything injecting our service
+        var factory = {};
+        var isWSConnected = false;
+        var attempts = 1;
+        // Create our websocket object with the address to the websocket
+        var ws = null;
+
+        function dispose () {
+            isWSConnected = false;
+            delete ws;
+        };
+
+        function generateInterval (k) {
+            var maxInterval = (Math.pow(2, k) - 1) * 1000;
+            if (maxInterval > 60*1000) {
+                maxInterval = 60*1000; // If the generated interval is more than 60 seconds, truncate it down to 30 seconds.
+            }
+              
+            // generate the interval to a random number between 0 and the maxInterval determined from above
+            return Math.random() * maxInterval; 
+        };
+
+        factory.isConnected = function () {
+            return isWSConnected;
+        }
+
+        factory.connect = function (url, connectCallback, disconnectCallback) {
+            ws = new WebSocket(url);
+            ws.onopen = function () {
+                attempts = 1;
+                isWSConnected = true;
+                if (connectCallback) {
+                    connectCallback();
+                }
+            };
+
+            ws.onclose = function () {
+                if(disconnectCallback) {
+                    disconnectCallback();
+                }
+                dispose();
+                var time = generateInterval(attempts);
+                window.setTimeout(function () {
+                    attempts++;
+                    factory.connect(url, connectCallback)
+                }.bind(this), time);
+            };
+        };
+
+        factory.disconnect = function () {
+            ws.close();
+            dispose();
+        };
+
+        factory.send = function (request) {
+            if (isWSConnected) {
+                ws.send(JSON.stringify(request));
+            }
+        };
+
+        factory.subscribe = function (callback) {
+            if (isWSConnected) {
+                ws.onmessage = function (evt) {
+                    callback(evt);
+                }
+            }
+        }
+        return factory;
+    })
+angular.module('services.xbmc', ['services.io'])
+    .factory('xbmc', ['$rootScope', '$q', '$parse', '$interval', 'io',
+        function($rootScope, $q, $parse, $interval, io) {
+            // We return this object to anything injecting our service
+            var factory = {};
+            var activePlayer = -1;
+            var activePlaylist = -1;
+            var volume = 0;
+
+            factory.connect = function(url, port) {
+                return io.connect(url, port);
+            }
+
+            factory.isConnected = function() {
+                return io.isConnected();
+            }
+
+            factory.register = function(method, callback) {
+                io.register(method, callback);
+            }
+
+            factory.unregister = function(method, callback) {
+                io.unregister(method, callback);
+            }
+
+            factory.up = function() {
+                io.send('Input.Up');
+            };
+            factory.down = function() {
+                io.send('Input.Down');
+            };
+            factory.left = function() {
+                io.send('Input.Left');
+            };
+            factory.right = function() {
+                io.send('Input.Right');
+            };
+            factory.select = function() {
+                io.send('Input.Select');
+            };
+            factory.back = function() {
+                io.send('Input.Back');
+            };
+            factory.contextmenu = function() {
+                io.send('Input.ContextMenu');
+            };
+            factory.info = function() {
+                io.send('Input.Info');
+            };
+            factory.home = function() {
+                io.send('Input.Home');
+            };
+            factory.sendText = function (textToSend) {
+                io.send('Input.io.sendText', {'text' : textToSend});
+            }
+            factory.showOSD = function () {
+                io.send('Input.ShowOSD');
+            };
+
+            factory.getActivePlayers = function(cb) {
+                io.send('Player.GetActivePlayers', null, true, 'result').then(cb);
+            };
+
+            factory.setActivePlayer = function(playerId) {
+                activePlayer = playerId;
+            }
+
+            factory.setActivePlaylist = function(playlistId) {
+                activePlaylist = playlistId;
+            }
+
+            factory.getPlayerItem = function(cb, playerId) {
+                playerId = playerId || activePlayer;
+                io.send('Player.GetItem', {
+                    'properties': ['title', 'artist', 'albumartist', 'genre',
+                        'year', 'rating', 'album', 'track', 'duration', 'comment', 'lyrics',
+                        'musicbrainztrackid', 'musicbrainzartistid', 'musicbrainzalbumid',
+                        'musicbrainzalbumartistid', 'playcount', 'fanart', 'director', 'trailer',
+                        'tagline', 'plot', 'plotoutline', 'originaltitle', 'lastplayed', 'writer',
+                        'studio', 'mpaa', 'cast', 'country', 'imdbnumber', 'premiered', 'productioncode',
+                        'runtime', 'set', 'showlink', 'streamdetails', 'top250', 'votes', 'firstaired',
+                        'season', 'episode', 'showtitle', 'thumbnail', 'file', 'resume', 'artistid',
+                        'albumid', 'tvshowid', 'setid', 'watchedepisodes', 'disc', 'tag', 'art', 'genreid',
+                        'displayartist', 'albumartistid', 'description', 'theme', 'mood', 'style',
+                        'albumlabel', 'sorttitle', 'episodeguide', 'uniqueid', 'dateadded', 'channel',
+                        'channeltype', 'hidden', 'locked', 'channelnumber', 'starttime', 'endtime'
+                    ],
+                    'playerid': playerId
+                }, true, 'result.item').then(cb);
+            };
+
+            factory.getPlayerProperties = function(cb) {
+                io.send('Player.GetProperties', {
+                    'properties': ['percentage', 'time', 'totaltime',
+                        'speed', 'playlistid',
+                        'currentsubtitle', 'subtitles',
+                        'audiostreams', 'currentaudiostream', 'type'
+                    ],
+                    'playerid': activePlayer
+                }, true, 'result').then(cb);
+            };
+
+            factory.goTo = function(index) {
+                io.send('Player.GoTo', {
+                    'playerid': activePlayer,
+                    'to': index
+                });
+            };
+
+            factory.next = function() {
+                io.send('Player.GoTo', {
+                    'playerid': activePlayer,
+                    'to': 'next'
+                });
+            };
+
+            factory.open = function(item) {
+                io.send('Player.Open', {
+                    'item': item
+                });
+            };
+
+            factory.previous = function() {
+                io.send('Player.GoTo', {
+                    'playerid': activePlayer,
+                    'to': 'previous'
+                });
+            };
+
+            factory.togglePlay = function() {
+                io.send('Player.PlayPause', {
+                    'playerid': activePlayer
+                });
+            };
+
+            factory.seek = function(newValue) {
+                io.send('Player.Seek', {
+                    'playerid': activePlayer,
+                    'value': newValue
+                });
+            };
+
+            factory.setAudioStream = function(audioStream) {
+                io.send('Player.SetAudioStream', {
+                    'playerid': activePlayer,
+                    'stream': audioStream
+                });
+            };
+
+            factory.setSubtitle = function(subtitle) {
+                io.send('Player.SetSubtitle', {
+                    'playerid': activePlayer,
+                    'subtitle': subtitle,
+                    'enable': true
+                });
+            };
+
+            factory.setSpeed = function(speed) {
+                io.send('Player.SetSpeed', {
+                    'playerid': activePlayer,
+                    'speed': speed
+                });
+            };
+
+            factory.stop = function() {
+                io.send('Player.Stop', {
+                    'playerid': activePlayer
+                });
+            };
+
+            (function getVolume(cb) {
+                io.send('Application.GetProperties', {
+                    'properties': ['volume']
+                }, true, 'result.volume').then(function(value) {
+                    volume = value;
+                });
+            })();
+
+            factory.increaseVolume = function() {
+                volume = Math.min(volume + 1, 100);
+                io.send('Application.SetVolume', {
+                    'volume': volume
+                });
+            };
+            factory.decreaseVolume = function() {
+                volume = Math.max(volume - 1, 0);
+                io.send('Application.SetVolume', {
+                    'volume':volume
+                });
+            };
+            factory.mute = function() {
+                io.send('Application.SetMute', {
+                    'mute': 'toggle'
+                });
+            };
+
+            factory.shutdown = function() {
+                io.send('System.Shutdown');
+            };
+
+            factory.activateWindow = function(params) {
+                io.send('GUI.ActivateWindow', params);
+            };
+
+            factory.getPlaylistItems = function(cb) {
+                io.send('Playlist.GetItems', {
+                    'playlistid': activePlaylist,
+                    'properties': ['title', 'art', 'duration', 'runtime', 'thumbnail']
+                }, true, 'result.items').then(cb);
+            };
+
+            factory.queue = function(item) {
+                if (activePlaylist > -1) {
+                    io.send('Playlist.Add', {
+                        'playlistid': activePlaylist,
+                        'item': item
+                    });
+                }
+            };
+
+            factory.getMovies = function(cb) {
+                io.send('VideoLibrary.GetMovies', {
+                    'limits': {
+                        'start': 0,
+                        'end': 75
+                    },
+                    'properties': ['title', 'genre', 'rating', 'thumbnail', 'runtime', 'playcount', 'streamdetails'],
+                    'sort': {
+                        'order': 'ascending',
+                        'method': 'label',
+                        'ignorearticle': true
+                    }
+                }, true, 'result.movies').then(cb);
+            };
+
+            factory.getMovieDetails = function(movieId, cb) {
+                io.send('VideoLibrary.GetMovieDetails', {
+                    'properties': ['title', 'genre', 'rating', 'thumbnail', 'plot',
+                        'studio', 'director', 'fanart', 'runtime', 'trailer', 'imdbnumber'
+                    ],
+                    'movieid': movieId
+                }, true, 'result.moviedetails').then(cb);
+
+            };
+
+            factory.getAlbums = function(filter, cb) {
+                var params = {
+                    'limits': {
+                        'start': 0,
+                        'end': 100
+                    },
+                    'properties': ['title', 'artist', 'thumbnail', 'year', 'genre'],
+                    'sort': {
+                        'order': 'ascending',
+                        'method': 'label',
+                        'ignorearticle': true
+                    },
+                };
+                if (filter && filter.key) {
+                    params.filter = {};
+                    params.filter[filter.key] = filter.value;
+                }
+                io.send('AudioLibrary.GetAlbums', params, true, 'result.albums').then(cb);
+            };
+
+            factory.getArtists = function(cb) {
+                io.send('AudioLibrary.GetArtists', {
+                    'limits': {
+                        'start': 0,
+                        'end': 100
+                    },
+                    'properties': ['genre', 'thumbnail'],
+                    'sort': {
+                        'order': 'ascending',
+                        'method': 'label',
+                        'ignorearticle': true
+                    }
+                }, true, 'result.artists').then(cb);
+
+            };
+
+            factory.getSongs = function(filter, cb) {
+                var params = {
+                    'limits': {
+                        'start': 0,
+                        'end': 500
+                    },
+                    'properties': ['title', 'artist', 'album', 'albumid', 'thumbnail', 'duration', 'track', 'year'],
+                    'sort': {
+                        'order': 'ascending',
+                        'method': 'label',
+                        'ignorearticle': true
+                    }
+                };
+                if (filter && filter.key) {
+                    params.filter = {};
+                    params.filter[filter.key] = filter.value;
+                    params.sort.method = 'track';
+                }
+                io.send('AudioLibrary.GetSongs', params, true, 'result.songs').then(cb);
+            };
+
+            factory.getTVShows = function(cb) {
+                io.send('VideoLibrary.GetTVShows', {
+                    'limits': {
+                        'start': 0,
+                        'end': 75
+                    },
+                    'properties': ['genre', 'title', 'rating', 'art', 'playcount'],
+                    'sort': {
+                        'order': 'ascending',
+                        'method': 'label'
+                    }
+                }, true, 'result.tvshows').then(cb);
+            };
+            factory.getSeasons = function(tvShowId, cb) {
+                io.send('VideoLibrary.GetSeasons', {
+                    'tvshowid': tvShowId,
+                    'properties': ['season', 'showtitle', 'fanart', 'thumbnail'],
+                    'limits': {
+                        'start': 0,
+                        'end': 75
+                    },
+                    'sort': {
+                        'order': 'ascending',
+                        'method': 'label'
+                    }
+                }, true, 'result.seasons').then(cb);
+            };
+            factory.getEpisodes = function(tvShowId, season, cb) {
+                io.send('VideoLibrary.GetEpisodes', {
+                    'tvshowid': tvShowId,
+                    'season': season,
+                    'properties': ['title', 'rating', 'firstaired', 'runtime', 'season', 'episode', 'thumbnail', 'art'],
+                    'limits': {
+                        'start': 0,
+                        'end': 75
+                    },
+                    'sort': {
+                        'order': 'ascending',
+                        'method': 'label'
+                    }
+                }, true, 'result.episodes').then(cb);
+            };
+            factory.getEpisodeDetails = function(episodeId, cb) {
+                io.send('VideoLibrary.GetEpisodeDetails', {
+                    'episodeid': episodeId,
+                    'properties': ['title', 'plot', 'rating', 'firstaired', 'runtime', 'thumbnail', 'art']
+                }, true, 'result.episodedetails').then(cb);
+            };
+
+            return factory;
+        }
+    ])
+"use strict";
+RAL.FileManifest.reset();
+
+angular.module('app', [
+    'ui.state',
+    'ui.bootstrap',
+    'directives.image',
+    'directives.keybinding',
+    'directives.rating',
+    'directives.seekbar',
+    'directives.tap',
+    'filters.xbmc',
+    'services.xbmc',
+    'services.storage',
+    'templates.app'
+]);
+
+// this is where our app definition is
+angular.module('app')
+    .config(['$stateProvider', '$urlRouterProvider', 'storageProvider',
+        function($stateProvider, $urlRouterProvider, storageProvider) {
+            var xbmchost = storageProvider.getItem('xbmchost', function(value) {
+                if (value === null) {
+                    $urlRouterProvider.otherwise("/settings");
+                } else {
+                    $urlRouterProvider.otherwise("/");
+                }
+            });
+        } 
+    ])
+    .controller('AppCtrl', ['$scope', '$rootScope', '$state', '$location', '$filter', 'xbmc', 'storage',
+        function($scope, $rootScope, $state, $location, $filter, xbmc, storage) {
+            
+            $scope.$state = $state;
+            $scope.connected = false;
+            $scope.initialized = false;
+            $scope.player = {
+                id: -1,
+                active: false,
+                audiostreams: [],
+                current: {},
+                intervalId: -1,
+                item: {},
+                seek: {},
+                speed: 0,
+                subtitles: [],
+                type: ''
+            };
+            $scope.playlist = -1;
+            $scope.library = {
+                item: {},
+                criteria: ''
+            };
+
+            $scope.configuration = {
+                host: {
+                    ip: '',
+                    port: '9090',
+                    displayName: ''
+                }
+            };
+            $scope.xbmc = xbmc;
+
+            $scope.go = function(path) {
+                $location.path(path);
+            };
+
+            $scope.hasFooter = function() {
+                return $scope.$state.current.views && $scope.$state.current.views.footer;
+            }
+
+            $scope.isConnected = function() {
+                return xbmc.isConnected()
+            }
+
+            $scope.toggleDrawer = function() {
+                var page = angular.element(document.querySelector('#page'));
+                page.toggleClass('minimize');
+            }
+
+            $rootScope.$on("$stateChangeStart", function(event, next, current) {
+                if ($scope.configuration.host.ip === '') {
+                    $scope.go('/settings');
+                }
+            });
+
+            function onPlayerPropertiesRetrieved(properties) {
+                if (properties) {
+                    var timeFilter = $filter('time');
+                    $scope.player.audiostreams = properties.audiostreams;
+                    $scope.player.current = {
+                        audiostream: properties.currentaudiostream,
+                        subtitle: properties.currentsubtitle
+                    };
+                    $scope.player.seek = {
+                        time: timeFilter(properties.time),
+                        totaltime: timeFilter(properties.totaltime),
+                        percentage: properties.percentage
+                    };
+                    $scope.player.speed = properties.speed;
+                    $scope.player.subtitles = properties.subtitles;
+                    $scope.player.type = properties.type;
+
+                    $scope.playlist = properties.playlistid;
+                    xbmc.setActivePlaylist(properties.playlistid);
+                    if (properties.speed === 1) {
+                        window.clearInterval($scope.player.intervalId);
+                        $scope.player.intervalId = window.setInterval(updateSeek, 1000);
+                    }
+                }
+            };
+
+            function onPlayerItemRetrieved(item) {
+                $scope.player.item = item;
+                xbmc.getPlayerProperties(onPlayerPropertiesRetrieved);
+            };
+
+            function onPlayersRetrieved(players) {
+                if (players.length > 0) {
+                    var player = players[0];
+                    $scope.player.id = player.playerid;
+                    $scope.player.active = true;
+                    xbmc.setActivePlayer($scope.player.id);
+                    xbmc.getPlayerItem(onPlayerItemRetrieved);
+                }
+            };
+
+
+            var updateSeek = function() {
+                $scope.$apply(function() {
+                    $scope.player.seek.time++;
+                    $scope.player.seek.percentage = $scope.player.seek.time / $scope.player.seek.totaltime * 100;
+                    var now = Date.now();
+                    if (now - $scope.player.seek.lastUpdate > 5000) {
+                        xbmc.getPlayerProperties(onPlayerPropertiesRetrieved);
+                    } else {
+                        $scope.player.seek.lastUpdate = now;
+                    }
+                });
+            };
+
+            var onPlayerPause = function() {
+                $scope.player.speed = 0;
+                window.clearInterval($scope.player.intervalId);
+            };
+
+            var onPlayerPlay = function(obj) {
+                $scope.$apply(function(){
+                    var player = obj.params.data.player;
+                    $scope.player.id = player.playerid;
+                    $scope.player.active = true;
+                    xbmc.setActivePlayer(player.playerid);
+
+                    xbmc.getPlayerItem(onPlayerItemRetrieved);
+                });
+            };
+
+            var onPlayerStop = function(obj) {
+                window.clearInterval($scope.player.intervalId);
+                $scope.player.seek.time = $scope.player.seek.totaltime;
+                $scope.player.seek.percentage = 100;
+                $scope.player.seek.lastUpdate = Date.now();
+                $scope.player.active = false;
+            };
+
+            var onPlayerSeek = function(obj) {
+                var data = obj.params.data;
+                var time = data.player.time;
+                var timeFilter = $filter('time');
+                var seek = $scope.player.seek;
+                seek.time = timeFilter(time);
+                seek.percentage = seek.time / seek.totaltime * 100;
+            };
+
+            var onPlaylistClear = function() {
+                $scope.playlist = -1;
+                xbmc.setActivePlaylist(-1);
+            };
+
+            xbmc.register('Player.OnPause', {
+                fn: onPlayerPause,
+                scope: this
+            });
+            xbmc.register('Player.OnPlay', {
+                fn: onPlayerPlay,
+                scope: this
+            });
+            xbmc.register('Player.OnStop', {
+                fn: onPlayerStop,
+                scope: this
+            });
+            xbmc.register('Player.OnSeek', {
+                fn: onPlayerSeek,
+                scope: this
+            });
+            xbmc.register('Playlist.OnClear', {
+                fn: onPlaylistClear,
+                scope: this
+            });
+
+            
+            var onLoad = function() {
+                $scope.$apply(function() {
+                    $scope.connected = true;
+                });
+                xbmc.getActivePlayers(onPlayersRetrieved);
+            }
+            var onDisconnect = function() {
+                $scope.connected = false;
+                $scope.initialized = true;
+            };
+            if (xbmc.isConnected()) {
+                onLoad();
+            } else {
+                xbmc.register('Websocket.OnConnected', {
+                    fn: onLoad,
+                    scope: this
+                });
+                xbmc.register('Websocket.OnDisconnected', {
+                    fn: onDisconnect,
+                    scope: this
+                });
+                storage.getItem('xbmchost', function (value) {
+                    $scope.initialized = true;
+                    if(value!==null) {
+                        $scope.configuration = JSON.parse(value);
+                        $scope.xbmc.connect($scope.configuration.host.ip, $scope.configuration.host.port);
+                         $scope.go('/');
+                    } else {
+                        $scope.go('/settings');
+                    }
+                })
+            }
+
+            var main = document.querySelector('div[role="main"]');
+            var gestureDetector = new GestureDetector(main);
+            gestureDetector.startDetecting();
+
+            var onSwipe = function(event) {
+                var direction = event.detail.direction || '';
+                var page = angular.element(document.querySelector('#page'));
+                if (direction.toLowerCase() === 'left' && page.hasClass('minimize')) {
+                    page.removeClass('minimize');
+                } else if (direction.toLowerCase() === 'right' && !page.hasClass('minimize')) {
+                    page.addClass('minimize');
+                }
+            };
+
+            main.addEventListener('swipe', onSwipe.bind(this));
+        }
+    ]);
+angular.module('app')
+    .controller('FooterCtrl', ['$scope',
+        function FooterCtrl($scope) {
+            $scope.goTo = function (window, category) {
+                var params = {'window': window};
+                if (category) {
+                    params.parameters = [category]
+                }
+                $scope.xbmc.activateWindow(params);
+            };
+
+            $scope.imdb = function (imdbnumber) {
+                window.open('http://www.imdb.com/title/' + imdbnumber + '/', '_blank');
+            };
+
+            var setSpeed = function (speed) {
+                $scope.player.speed = speed;
+                $scope.xbmc.setSpeed(speed);
+            }
+
+            $scope.backward = function () {
+                var newSpeed = $scope.player.speed;
+                if ($scope.player.speed === 1) {
+                    newSpeed = -2;
+                } else if ($scope.player.speed > 0) {
+                    newSpeed = newSpeed / 2;
+                } else if ($scope.player.speed < 0) {
+                    newSpeed = newSpeed * 2;
+                }
+                setSpeed(newSpeed >= -32 ? newSpeed : 1);
+            };
+
+            $scope.forward = function () {
+                var newSpeed = $scope.player.speed;
+                if ($scope.player.speed === -1) {
+                    newSpeed = 1;
+                } else if ($scope.player.speed > 0) {
+                    newSpeed = newSpeed * 2;
+                } else if ($scope.player.speed < 0) {
+                    newSpeed = newSpeed / 2;
+                }
+                setSpeed(newSpeed <= 32 ? newSpeed : 1);
+            };
+        }
+    ])
+angular.module('app')
+    .config(['$stateProvider', function ($stateProvider) {
+        $stateProvider.state('moviedetails', {
+            url: '/movie/:movieid',
+            views: {
+                header: {templateUrl: 'layout/headers/basic.tpl.html'},
+                body: {
+                    templateUrl: 'movie/details.tpl.html',
+                    controller: 'MovieDetailsCtrl'
+                },
+                footer: {templateUrl: 'layout/footers/details.tpl.html', controller: 'FooterCtrl'}
+            }
+        });
+    }])
+    .controller('MovieDetailsCtrl', ['$scope', '$stateParams', '$location',
+        function MovieDetailsCtrl($scope, $stateParams, $location, utilities) {
+            $scope.movieid = parseInt($stateParams.movieid);
+            $scope.loading = true;
+            function onMovieRetrieved (item) {
+                $scope.loading = false;
+                item.type = 'movie';
+                $scope.library.item = item;
+            };
+            var onLoad = function () {
+                $scope.xbmc.getMovieDetails($scope.movieid, onMovieRetrieved);
+            };
+            if ($scope.xbmc.isConnected()) {
+                onLoad();
+            } else {
+                $scope.xbmc.register('Websocket.OnConnected', { fn : onLoad, scope : this});
+            }
+        }
+    ]);
+angular.module('app')
+    .config(['$stateProvider', function ($stateProvider) {
+        $stateProvider.state('movies', {
+            url: '/movies',
+            views: {
+                header: {templateUrl: 'layout/headers/searchable.tpl.html'},
+                body: {templateUrl: 'movie/list.tpl.html', controller: 'MovieListCtrl'}
+            }
+        })
+    }])
+    .controller('MovieListCtrl', ['$scope',
+        function MovieListCtrl($scope) {
+            $scope.loading = true;
+            function onMoviesRetrieved (movies) {
+                $scope.loading = false;
+                $scope.movies = movies;
+            };
+            var onLoad = function () {
+                 $scope.xbmc.getMovies(onMoviesRetrieved);
+            };
+            if ($scope.xbmc.isConnected()) {
+                onLoad();
+            } else {
+                $scope.xbmc.register('Websocket.OnConnected', { fn : onLoad, scope : this});
+            }
+        }
+    ]);
+angular.module('app')
+    .config(['$stateProvider',
+        function($stateProvider) {
+            $stateProvider.state('filteredAlbums', {
+                url: '/music/albums/:filter/:filterId',
+                views: {
+                    header: {
+                        templateUrl: 'layout/headers/searchable.tpl.html'
+                    },
+                    body: {
+                        templateUrl: 'music/albums.tpl.html',
+                        controller: 'MusicAlbumsCtrl'
+                    }
+                }
+            }).state('albums', {
+                url: '/music/albums',
+                views: {
+                    header: {
+                        templateUrl: 'layout/headers/searchable.tpl.html'
+                    },
+                    body: {
+                        templateUrl: 'music/albums.tpl.html',
+                        controller: 'MusicAlbumsCtrl'
+                    }
+                }
+            });
+        }
+    ])
+    .controller('MusicAlbumsCtrl', ['$scope', '$stateParams',
+        function MusicAlbumsCtrl($scope, $stateParams) {
+            $scope.loading = true;
+            $scope.filter = $stateParams.filter;
+
+            var filter = null;
+            if ($scope.filter) {
+                $scope.filterId = parseInt($stateParams.filterId);
+                filter = {
+                    key: $scope.filter,
+                    value: $scope.filterId
+                };
+            }
+
+            function onAlbumsRetrieved(albums) {
+                $scope.loading = false;
+                $scope.albums = albums;
+            };
+            var onLoad = function() {
+                $scope.xbmc.getAlbums(filter, onAlbumsRetrieved);
+            };
+            if ($scope.xbmc.isConnected()) {
+                onLoad();
+            } else {
+                $scope.xbmc.register('Websocket.OnConnected', {
+                    fn: onLoad,
+                    scope: this
+                });
+            }
+
+            $scope.hasCover = function(album) {
+                return album.thumbnail !== '';
+            }
+        }
+    ]);
+angular.module('app')
+    .config(['$stateProvider', function ($stateProvider) {
+        $stateProvider.state('artists', {
+            url: '/music/artists',
+            views: {
+                header: {templateUrl: 'layout/headers/searchable.tpl.html'},
+                body: {
+                    templateUrl: 'music/artists.tpl.html', controller: 'MusicArtistsCtrl'
+                }
+            }
+        });
+    }])
+    .controller('MusicArtistsCtrl', ['$scope',
+        function MusicAlbumsCtrl($scope, $stateParams) {
+            function onArtistsRetrieve (artists) {
+                $scope.loading = false;
+                $scope.artists = artists;
+            };
+            var onLoad = function () {
+                $scope.loading = true;
+                $scope.xbmc.getArtists(onArtistsRetrieve);
+            };
+            if ($scope.xbmc.isConnected()) {
+                onLoad();
+            } else {
+                $scope.xbmc.register('Websocket.OnConnected', { fn : onLoad, scope : this});
+            }
+
+            $scope.hasCover = function (artist) {
+                return artist.thumbnail !== '';
+            }
+        }
+    ]);
+angular.module('app')
+    .config(['$stateProvider', function ($stateProvider) {
+        $stateProvider.state('music', {
+            url: '/musics',
+            views: {
+                header: {templateUrl: 'layout/headers/basic.tpl.html'},
+                body: {
+                    templateUrl: 'music/musics.tpl.html'
+                }
+            }
+        })
+    }]);
+angular.module('app')
+    .config(['$stateProvider', function ($stateProvider) {
+        $stateProvider.state('filteredSongs', {
+            url: '/music/songs/:filter/:filterId',
+            views: {
+                header: {templateUrl: 'layout/headers/searchable.tpl.html'},
+                body: {
+                    templateUrl: 'music/songs.tpl.html', controller: 'MusicSongsCtrl'
+                }
+            }
+        }).state('songs', {
+                url: '/music/songs',
+                views: {
+                    header: {templateUrl: 'layout/headers/searchable.tpl.html'},
+                    body: {
+                        templateUrl: 'music/songs.tpl.html', controller: 'MusicSongsCtrl'
+                    }
+                }
+            });
+    }])
+    .controller('MusicSongsCtrl', ['$scope', '$rootScope', '$stateParams', '$filter',
+    function MusicSongsCtrl($scope, $rootScope, $stateParams, $filter) {
+        $scope.loading = true;
+        $scope.filter = $stateParams.filter;
+        $scope.queue = [];
+        var filter = null;
+        if ($scope.filter) {
+            filter = {key : $scope.filter, value : parseInt($stateParams.filterId)}
+        }
+        function onSongsRetrieved (songs) {
+            $scope.loading = false;
+            $scope.songs = songs;
+        };
+        var onLoad = function () {
+            $scope.xbmc.getSongs(filter, onSongsRetrieved);
+        };
+
+        var playlistAdd = function () {
+            if ($scope.isFiltered() && $scope.queue.length > 0) {
+                $scope.xbmc.queue({songid: $scope.queue[0].songid});
+                $scope.queue = $scope.queue.slice(1);
+                if ($scope.queue.length > 0) {
+                    window.setTimeout(playlistAdd.bind(this), 500);
+                }
+            }
+        }
+
+        $scope.$watch('playlist', function () {
+            playlistAdd();
+        }, true);
+
+        if ($scope.xbmc.isConnected()) {
+            onLoad();
+        } else {
+            $scope.xbmc.register('Websocket.OnConnected', { fn : onLoad, scope : this});
+        }
+
+        $scope.getCover = function (song) {
+            var assetFilter = $filter('asset');
+            var hasCover = typeof $scope.filter !== 'undefined' && song && song.thumbnail !== '';
+            if (hasCover) {
+                return assetFilter(song.thumbnail, $scope.configuration.host.ip);
+            } else {
+                return 'img/backgrounds/album.png';
+            }
+        }
+
+        $scope.isFiltered = function () {
+            return typeof $scope.filter !== 'undefined';
+        }
+
+        $scope.play = function (item, index) {
+            $scope.xbmc.open(item);
+            if (index + 1 < $scope.songs.length) {
+                $scope.queue = $scope.songs.slice(index + 1);
+            }
+        };
+    }
+])
+angular.module('app')
+    .controller('NavigationCtrl', ['$scope', '$location', '$filter',
+        function ($scope, $location, $filter) {
+            $scope.medias = [
+                {
+                    hash: '/movies',
+                    icon: 'icon-film',
+                    label: 'Movies'
+                },
+                {
+                    hash: '/tvshows',
+                    icon: 'icon-facetime-video',
+                    label: 'TV Shows'
+                },
+                {
+                    hash: '/musics',
+                    icon: 'icon-music',
+                    label: 'Musics'
+                }
+            ];
+            $scope.controls = [
+                {
+                    hash: '/',
+                    icon: 'icon-remote',
+                    label: 'Remote'
+                },
+                {
+                    hash: '/settings',
+                    icon: 'icon-cogs',
+                    label: 'Settings'
+                }
+            ];
+
+            $scope.getLabel = function (item) {
+                if (item) {
+                    return  item.title !== '' ? item.title : item.label;
+                }
+                return '';
+            }
+
+            $scope.go = function (path) {
+                $location.path(path);
+                $scope.toggleDrawer();
+            };
+
+            $scope.hasPoster = function (art) {
+                var result = false;
+                if (art) {
+                    if (art['album.thumb'] || art['tvshow.poster'] ||
+                        art.poster || art.thumb) {
+                        result =  true;
+                    }
+                }
+                return result;
+            };
+
+            $scope.isCurrent = function (hash) {
+                return hash === $location.path() ? 'selected' : '';
+            };
+        }]);
+
+angular.module('app')
+    .config(['$stateProvider',
+        function($stateProvider) {
+            $stateProvider.state('playing', {
+                url: '/now/playing',
+                views: {
+                    header: {
+                        templateUrl: 'layout/headers/basic.tpl.html'
+                    },
+                    body: {
+                        templateUrl: 'now/playing.tpl.html',
+                        controller: 'NowPlayingCtrl'
+                    },
+                    footer: {
+                        templateUrl: 'layout/footers/player.tpl.html',
+                        controller: 'FooterCtrl'
+                    }
+                }
+            });
+        }
+    ])
+    .controller('NowPlayingCtrl', ['$scope', '$filter',
+        function NowPlayingCtrl($scope, $filter) {
+            $scope.loading = true;
+            $scope.showAudioSelect = false;
+            $scope.showSubtitleSelect = false;
+            $scope.showTimePicker = false;
+
+            var timeFilter = $filter('time');
+            $scope.seekTime = timeFilter($scope.player.seek.time);
+
+            function onPlayerItemRetrieved(item) {
+                $scope.loading = false;
+                $scope.library.item = item;
+            };
+
+            function onPlayersRetrieved(players) {
+                if (players.length > 0) {
+                    var player = players[0];
+                    $scope.xbmc.getPlayerItem(onPlayerItemRetrieved, player.playerid);
+                } else {
+                    $scope.go('/');
+                }
+            };
+
+            var onLoad = function() {
+                $scope.xbmc.getActivePlayers(onPlayersRetrieved);
+            };
+            if ($scope.xbmc.isConnected()) {
+                onLoad();
+            } else {
+                $scope.xbmc.register('Websocket.OnConnected', {
+                    fn: onLoad,
+                    scope: this
+                });
+            }
+
+            $scope.isTypeVideo = function() {
+                return $scope.player.type === 'video' ||
+                    $scope.player.type === 'movie' ||
+                    $scope.player.type === 'episode';
+            };
+
+            $scope.isSelected = function(current, obj) {
+                if (typeof obj === 'string') {
+                    return obj === current;
+                } else {
+                    return obj.index === current.index;
+                }
+            };
+
+            $scope.onSeekbarChanged = function(newValue) {
+                $scope.updateSeek(newValue);
+            };
+
+            var removeTime = function(date) {
+                date.setSeconds(0);
+                date.setHours(0);
+                date.setMinutes(0);
+                return date;
+            }
+
+            $scope.onValidateSeekTime = function() {
+                var startTime = removeTime(new Date()).getTime();
+                var totalTime = timeFilter($scope.player.seek.totaltime).getTime();
+                var seekTime = $scope.seekTime.getTime();
+                var percent = (seekTime - startTime) / (totalTime - startTime) * 100;
+                $scope.updateSeek(Math.floor(percent));
+                $scope.showTimePicker = false;
+            };
+
+            $scope.setAudioStream = function(obj) {
+                $scope.showAudioSelect = false;
+                $scope.player.current.audiostream = obj;
+                $scope.xbmc.setAudioStream(typeof obj === 'string' ? obj : obj.index);
+            };
+
+            $scope.setSubtitle = function(obj) {
+                $scope.showSubtitleSelect = false;
+                $scope.player.current.subtitle = obj;
+                $scope.xbmc.setSubtitle(typeof obj === 'string' ? obj : obj.index);
+            };
+
+            $scope.toggleAudioStreams = function() {
+                $scope.showAudioSelect = !$scope.showAudioSelect;
+            };
+
+            $scope.toggleSubtitles = function() {
+                $scope.showSubtitleSelect = !$scope.showSubtitleSelect;
+            };
+
+            $scope.toggleTimePicker = function() {
+                $scope.seekTime = timeFilter($scope.player.seek.time);
+                $scope.showTimePicker = !$scope.showTimePicker;
+            };
+
+            $scope.updateSeek = function(newValue) {
+                newValue = Math.min(newValue, 100);
+                newValue = Math.max(newValue, 0);
+                $scope.xbmc.seek(newValue);
+            },
+
+            $scope.$watch('player.item', function() {
+                $scope.library.item = $scope.player.item;
+            }, true);
+        }
+    ])
+angular.module('app')
+    .config(['$stateProvider', function ($stateProvider) {
+        $stateProvider.state('playlist', {
+            url: '/now/playlist',
+            views: {
+                header: {templateUrl: 'layout/headers/basic.tpl.html'},
+                body: {
+                    templateUrl: 'now/playlist.tpl.html',
+                    controller: 'NowPlaylistCtrl'
+                }
+            }
+        });
+    }])
+    .controller('NowPlaylistCtrl', ['$scope',
+        function NowPlaylistCtrl($scope) {
+            $scope.loading = true;
+
+            var getItems = function () {
+                $scope.xbmc.getPlaylistItems(function (items) {
+                    $scope.items = items;
+                    $scope.loading = false;
+                });
+            }
+
+            var onLoad = function () {
+                if ($scope.playlist > -1) {
+                    getItems();
+                } else {
+                    $scope.go('/remote');
+                }
+            };
+            if ($scope.xbmc.isConnected()) {
+                onLoad();
+            } else {
+                $scope.xbmc.register('Websocket.OnConnected', { fn: onLoad, scope: this});
+            }
+
+            var onPlaylistAdd = function (obj) {
+                $scope.loading = true;
+                getItems();
+            }
+
+            var onPlaylistClear = function () {
+                $scope.go('/remote');
+            }
+
+            var onPlaylistRemove = function (obj) {
+                var data = obj.params.data;
+                if (!$scope.loading && $scope.playlist === data.playlistid && typeof $scope.items !== 'undefined') {
+                    $scope.items.splice(data.position);
+                }
+            }
+
+            $scope.xbmc.register('Playlist.OnAdd', { fn: onPlaylistAdd, scope: this});
+            $scope.xbmc.register('Playlist.OnClear', { fn: onPlaylistClear, scope: this});
+            $scope.xbmc.register('Playlist.OnRemove', { fn: onPlaylistRemove, scope: this});
+
+            $scope.isPlaying = function (id) {
+                return  $scope.player.item.id === id;
+            }
+        }
+
+    ]);
+
+angular.module('app')
+    .config(['$stateProvider',
+        function($stateProvider) {
+            $stateProvider.state('remote', {
+                url: '/',
+                views: {
+                    header: {
+                        templateUrl: 'layout/headers/basic.tpl.html'
+                    },
+                    body: {
+                        templateUrl: 'remote/remote.tpl.html',
+                        controller: 'RemoteCtrl'
+                    },
+                    footer: {
+                        templateUrl: 'layout/footers/player.tpl.html',
+                        controller: 'FooterCtrl'
+                    }
+                }
+            });
+        }
+    ]).controller('RemoteCtrl', ['$scope', '$location',
+        function RemoteCtrl($scope, $location) {
+            $scope.textToSend = '';
+            $scope.showKeyboard = false;
+
+            $scope.toggleKeyboard = function() {
+                $scope.showKeyboard = !$scope.showKeyboard;
+            };
+
+            $scope.onValidateText = function() {
+                $scope.xbmc.sendText($scope.textToSend);
+                $scope.showKeyboard = false;
+                $scope.textToSend = '';
+            };
+
+        }
+    ]);
+angular.module('app')
+    .config(['$stateProvider', function ($stateProvider) {
+        $stateProvider.state('settings', {
+            url: '/settings',
+            views: {
+                header: {templateUrl: 'layout/headers/basic.tpl.html'},
+                body: {templateUrl: 'settings/wizard.tpl.html', controller: 'WizardCtrl'}
+            }
+        });
+    }])
+    .controller('WizardCtrl', ['$scope', 'storage',
+        function WizardCtrl($scope, storage) {
+            $scope.validIpAddressRegex = new RegExp("^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])$");
+
+            $scope.save = function () {
+                if($scope.wizard.$valid) {
+                    storage.setItem('xbmchost', JSON.stringify($scope.configuration));
+                    $scope.xbmc.connect($scope.configuration.host.ip, $scope.configuration.host.port);
+                    $scope.go('/');
+                }
+            }
+        }]);
+angular.module('app')
+    .config(['$stateProvider',
+        function($stateProvider) {
+            $stateProvider.state('episode', {
+                url: '/tvshow/:tvshowid/:season/:episodeid',
+                views: {
+                    header: {
+                        templateUrl: 'layout/headers/basic.tpl.html'
+                    },
+                    body: {
+                        templateUrl: 'tvshow/details.tpl.html',
+                        controller: 'EpisodeDetailsCtrl'
+                    },
+                    footer: {
+                        templateUrl: 'layout/footers/details.tpl.html',
+                        controller: 'FooterCtrl'
+                    }
+                }
+            });
+        }
+    ])
+    .controller('EpisodeDetailsCtrl', ['$scope', '$stateParams', '$location',
+        function EpisodeDetailsCtrl($scope, $stateParams, $location) {
+            $scope.episodeid = parseInt($stateParams.episodeid);
+
+            function onEpisodeDetailsRetrieved(item) {
+                $scope.loading = false;
+                item.type = 'episode';
+                $scope.library.item = item
+            };
+
+            var onLoad = function() {
+                $scope.loading = true;
+                $scope.xbmc.getEpisodeDetails($scope.episodeid, onEpisodeDetailsRetrieved);
+            };
+            if ($scope.xbmc.isConnected()) {
+                onLoad();
+            } else {
+                $scope.xbmc.register('Websocket.OnConnected', {
+                    fn: onLoad,
+                    scope: this
+                });
+            }
+        }
+    ]);
+angular.module('app')
+    .config(['$stateProvider',
+        function($stateProvider) {
+            $stateProvider.state('episodes', {
+                url: '/tvshow/:tvshowid/:season',
+                views: {
+                    header: {
+                        templateUrl: 'layout/headers/searchable.tpl.html'
+                    },
+                    body: {
+                        templateUrl: 'tvshow/episodes.tpl.html',
+                        controller: 'TvShowEpisodesCtrl'
+                    }
+                }
+            });
+        }
+    ])
+    .controller('TvShowEpisodesCtrl', ['$scope', '$stateParams', '$location',
+        function TvShowEpisodesCtrl($scope, $stateParams, $location) {
+            $scope.loading = true;
+            $scope.tvshowid = parseInt($stateParams.tvshowid);
+            $scope.season = parseInt($stateParams.season);
+
+            function onEpisodesRetrieved(episodes) {
+                $scope.loading = false;
+                $scope.episodes = episodes;
+            }
+            var onLoad = function() {
+                $scope.laoding = true;
+                $scope.xbmc.getEpisodes($scope.tvshowid, $scope.season, onEpisodesRetrieved);
+            };
+            if ($scope.xbmc.isConnected()) {
+                onLoad();
+            } else {
+                $scope.xbmc.register('Websocket.OnConnected', {
+                    fn: onLoad,
+                    scope: this
+                });
+            }
+        }
+    ]);
+angular.module('app')
+    .config(['$stateProvider',
+        function($stateProvider) {
+            $stateProvider.state('tvshows', {
+                url: '/tvshows',
+                views: {
+                    header: {
+                        templateUrl: 'layout/headers/searchable.tpl.html'
+                    },
+                    body: {
+                        templateUrl: 'tvshow/list.tpl.html',
+                        controller: 'TvShowListCtrl'
+                    }
+                }
+            });
+        }
+    ])
+    .controller('TvShowListCtrl', ['$scope',
+        function TvShowListCtrl($scope) {
+            function onTvShowsRetrieved(tvshows) {
+                $scope.loading = false;
+                $scope.tvshows = tvshows;
+            };
+            var onLoad = function() {
+                $scope.loading = true;
+                $scope.xbmc.getTVShows(onTvShowsRetrieved);
+            };
+            if ($scope.xbmc.isConnected()) {
+                onLoad();
+            } else {
+                $scope.xbmc.register('Websocket.OnConnected', {
+                    fn: onLoad,
+                    scope: this
+                });
+            }
+        }
+    ]);
+angular.module('app')
+    .config(['$stateProvider',
+        function($stateProvider) {
+            $stateProvider.state('seasons', {
+                url: '/tvshow/:tvshowid',
+                views: {
+                    header: {
+                        templateUrl: 'layout/headers/searchable.tpl.html'
+                    },
+                    body: {
+                        templateUrl: 'tvshow/seasons.tpl.html',
+                        controller: 'TvShowSeasonsCtrl'
+                    }
+                }
+            });
+        }
+    ])
+    .controller('TvShowSeasonsCtrl', ['$scope', '$stateParams', '$location',
+        function TvShowSeasonsCtrl($scope, $stateParams, $location) {
+            $scope.loading = true;
+            $scope.tvshowid = parseInt($stateParams.tvshowid);
+
+            function onSeasonsRetrieved(seasons) {
+                $scope.seasons = seasons || [];
+                $scope.loading = false;
+                if (seasons.length === 1) {
+                    $scope.go('/tvshow/' + $scope.tvshowid + '/' + seasons[0].season);
+                }
+            };
+            var onLoad = function() {
+                $scope.xbmc.getSeasons($scope.tvshowid, onSeasonsRetrieved);
+            };
+            if ($scope.xbmc.isConnected()) {
+                onLoad();
+            } else {
+                $scope.xbmc.register('Websocket.OnConnected', {
+                    fn: onLoad,
+                    scope: this
+                });
+            }
+        }
+    ])
+angular.module('templates.app', ['layout/footers/basic.tpl.html', 'layout/footers/details.tpl.html', 'layout/footers/player.tpl.html', 'layout/headers/basic.tpl.html', 'layout/headers/searchable.tpl.html', 'movie/details.tpl.html', 'movie/list.tpl.html', 'music/albums.tpl.html', 'music/artists.tpl.html', 'music/musics.tpl.html', 'music/songs.tpl.html', 'navigation/navigation.tpl.html', 'now/playing.tpl.html', 'now/playlist.tpl.html', 'remote/remote.tpl.html', 'settings/wizard.tpl.html', 'template/timepicker/timepicker.html', 'tvshow/details.tpl.html', 'tvshow/episodes.tpl.html', 'tvshow/list.tpl.html', 'tvshow/seasons.tpl.html']);
 
 angular.module("layout/footers/basic.tpl.html", []).run(["$templateCache", function($templateCache) {
   $templateCache.put("layout/footers/basic.tpl.html",
@@ -2459,25 +3522,25 @@ angular.module("layout/footers/details.tpl.html", []).run(["$templateCache", fun
   $templateCache.put("layout/footers/details.tpl.html",
     "<div ng-switch on=\"library.item.type\">\n" +
     "    <div ng-switch-when=\"movie\"  class=\"row actions\" >\n" +
-    "        <div class=\"span3\" ng-tap=\"play({'movieid': library.item.movieid})\">\n" +
+    "        <div class=\"span3\" ng-tap=\"xbmc.open({'movieid': library.item.movieid})\">\n" +
     "            <i class=\"icon-play\"></i>\n" +
     "        </div>\n" +
     "        <div class=\"span3\" ng-tap=\"imdb(library.item.imdbnumber)\">\n" +
     "            <span class=\"imdb\">IMDb</span>\n" +
     "        </div>\n" +
-    "        <div class=\"span3\" ng-tap=\"play({'file': library.item.trailer})\">\n" +
+    "        <div class=\"span3\" ng-tap=\"xbmc.open({'file': library.item.trailer})\">\n" +
     "            <i class=\"icon-film\"></i>\n" +
     "        </div>\n" +
-    "        <div class=\"span3\" ng-tap=\"add({'movieid': library.item.movieid})\">\n" +
+    "        <div class=\"span3\" ng-tap=\"xbmc.queue({'movieid': library.item.movieid})\">\n" +
     "            <i class=\"icon-plus\"></i>\n" +
     "        </div>\n" +
     "    </div>\n" +
     "\n" +
     "    <div ng-switch-when=\"episode\"  class=\"row actions\" >\n" +
-    "        <div class=\"span3\" ng-tap=\"play({'episodeid': library.item.episodeid})\">\n" +
+    "        <div class=\"span3\" ng-tap=\"xbmc.open({'episodeid': library.item.episodeid})\">\n" +
     "            <i class=\"icon-play\"></i>\n" +
     "        </div>\n" +
-    "        <div class=\"span3\" ng-tap=\"add({'episodeid': library.item.episodeid})\">\n" +
+    "        <div class=\"span3\" ng-tap=\"xbmc.queue({'episodeid': library.item.episodeid})\">\n" +
     "            <i class=\"icon-plus\"></i>\n" +
     "        </div>\n" +
     "    </div>\n" +
@@ -2488,27 +3551,28 @@ angular.module("layout/footers/player.tpl.html", []).run(["$templateCache", func
   $templateCache.put("layout/footers/player.tpl.html",
     "<div ng-switch on=\"player.active\">\n" +
     "    <div ng-switch-when=\"true\" class=\"row actions\">\n" +
-    "        <div class=\"span2\" ng-tap=\"previous()\">\n" +
+    "        <div class=\"span2\" ng-tap=\"xbmc.previous()\">\n" +
     "            <i class=\"icon-fast-backward\"></i>\n" +
     "        </div>\n" +
-    "        <div class=\"span2\" ng-tap=\"backward()\">\n" +
+    "        <div class=\"span2\" ng-tap=\"xbmc.backward()\">\n" +
     "            <i class=\"icon-backward\"></i>\n" +
     "        </div>\n" +
-    "        <div class=\"span2\" ng-tap=\"togglePlay()\">\n" +
+    "        <div class=\"span2\" ng-tap=\"xbmc.togglePlay()\">\n" +
     "            <i class=\"icon-play\" ng-show=\"!player.speed\"></i>\n" +
     "            <i class=\"icon-pause\" ng-show=\"player.speed\"></i>\n" +
     "        </div>\n" +
-    "        <div class=\"span2\" ng-tap=\"stop()\">\n" +
+    "        <div class=\"span2\" ng-tap=\"xbmc.stop()\">\n" +
     "            <i class=\"icon-stop\"></i>\n" +
     "        </div>\n" +
-    "        <div class=\"span2\" ng-tap=\"forward()\">\n" +
+    "        <div class=\"span2\" ng-tap=\"xbmc.forward()\">\n" +
     "            <i class=\"icon-forward\"></i>\n" +
     "        </div>\n" +
-    "        <div class=\"span2\" ng-tap=\"next()\">\n" +
+    "        <div class=\"span2\" ng-tap=\"xbmc.next()\">\n" +
     "            <i class=\"icon-fast-forward\"></i>\n" +
     "        </div> \n" +
     "    </div>\n" +
-    " <div ng-switch-when=\"false\" ng-include=\"'layout/footers/basic.tpl.html'\">\n" +
+    "    <div ng-switch-when=\"false\">\n" +
+    "     <div ng-include=\"'layout/footers/basic.tpl.html'\"></div>\n" +
     "    </div>\n" +
     "</div>\n" +
     "");
@@ -2565,7 +3629,7 @@ angular.module("movie/details.tpl.html", []).run(["$templateCache", function($te
     "            </h1>\n" +
     "\n" +
     "            <div class=\"row\">\n" +
-    "                <img class=\"offset1 span5 poster\" src=\"{{library.item.thumbnail | asset:configuration.host.ip | fallback:'img/backgrounds/low-contrast-256.png'}}\"/>\n" +
+    "                <img class=\"offset1 span5 poster\" source=\"{{library.item.thumbnail | asset:configuration.host.ip | fallback:'img/backgrounds/low-contrast-256.png'}}\"/>\n" +
     "\n" +
     "                <div class=\"span6\">\n" +
     "                    <ul>\n" +
@@ -2585,8 +3649,7 @@ angular.module("movie/details.tpl.html", []).run(["$templateCache", function($te
     "                    </ul>\n" +
     "                </div>\n" +
     "            </div>\n" +
-    "            <div class=\"fanart\"\n" +
-    "                 style=\"background-image: url({{library.item.fanart | asset:configuration.host.ip}});\"></div>\n" +
+    "            <div class=\"fanart\" source=\"{{library.item.fanart | asset:configuration.host.ip}}\"></div>\n" +
     "        </div>\n" +
     "        <div>\n" +
     "            <div class=\"rating\" rating rating-value=\"library.item.rating\" rating-max=\"10\"></div>\n" +
@@ -2604,7 +3667,7 @@ angular.module("movie/list.tpl.html", []).run(["$templateCache", function($templ
     "        <li class=\"row movie\" ng-repeat=\"movie in movies | filter:library.criteria\"\n" +
     "            ng-tap=\"go('/movie/' + movie.movieid, 'none')\"\n" +
     "            ng-class-odd=\"'odd'\">\n" +
-    "            <img class=\"span4 poster\" src=\"{{movie.thumbnail | asset:configuration.host.ip}}\"/>\n" +
+    "            <img class=\"span4 poster\" source=\"{{movie.thumbnail | asset:configuration.host.ip}}\"/>\n" +
     "            <em class=\"playcount\" ng-show=\"movie.playcount\">&#10003;</em>\n" +
     "\n" +
     "            <div class=\"span7\">\n" +
@@ -2634,7 +3697,7 @@ angular.module("music/albums.tpl.html", []).run(["$templateCache", function($tem
     "        <li class=\"row album\" ng-repeat=\"album in albums | filter:library.criteria\"\n" +
     "            ng-tap=\"go('/music/songs/albumid/' + album.albumid)\"\n" +
     "            ng-class-odd=\"'odd'\">\n" +
-    "            <img class=\"span3 cover\" src=\"{{album.thumbnail | asset:configuration.host.ip}}\"\n" +
+    "            <img class=\"span3 cover\" source=\"{{album.thumbnail | asset:configuration.host.ip}}\"\n" +
     "                 ng-show=\"hasCover(album)\"/>\n" +
     "            <img class=\"span3 cover unknow\" src=\"img/blank.gif\"\n" +
     "                 ng-hide=\"hasCover(album)\"/>\n" +
@@ -2662,7 +3725,7 @@ angular.module("music/artists.tpl.html", []).run(["$templateCache", function($te
     "        <li class=\"row artist\" ng-repeat=\"artist in artists | filter:library.criteria\"\n" +
     "            ng-tap=\"go('/music/albums/artistid/' + artist.artistid)\"\n" +
     "            ng-class-odd=\"'odd'\">\n" +
-    "            <img class=\"span3 cover\" src=\"{{artist.thumbnail | asset:configuration.host.ip}}\"\n" +
+    "            <img class=\"span3 cover\" source=\"{{artist.thumbnail | asset:configuration.host.ip}}\"\n" +
     "                 ng-show=\"hasCover(artist)\"/>\n" +
     "            <img class=\"span3 cover unknow\" src=\"img/blank.gif\" ng-hide=\"hasCover(artist)\"/>\n" +
     "\n" +
@@ -2702,7 +3765,7 @@ angular.module("music/musics.tpl.html", []).run(["$templateCache", function($tem
     "            </div>\n" +
     "        </div>\n" +
     "        <div class=\"span6 category\">\n" +
-    "            <div class=\"party\" ng-tap=\"party()\">\n" +
+    "            <div class=\"party\" ng-tap=\"xbmc.open({'file' : undefined})\">\n" +
     "                <h3>Party Mode</h3>\n" +
     "            </div>\n" +
     "        </div>\n" +
@@ -2719,7 +3782,7 @@ angular.module("music/songs.tpl.html", []).run(["$templateCache", function($temp
     "            <li class=\"row album\" ng-show=\"isFiltered()\">\n" +
     "                <div class=\"span4 thumb\">\n" +
     "                    <img class=\"vinyl\" src=\"img/backgrounds/vinyl.png\"/>\n" +
-    "                    <img class=\"cover\" src=\"{{getCover(songs[0])}}\"/>\n" +
+    "                    <img class=\"cover\" source=\"{{getCover(songs[0])}}\"/>\n" +
     "                </div>\n" +
     "                <div class=\"span8\">\n" +
     "                    <p>{{songs[0].album}}</p>\n" +
@@ -2785,18 +3848,18 @@ angular.module("navigation/navigation.tpl.html", []).run(["$templateCache", func
     "        </ul>\n" +
     "    </nav>\n" +
     "    <div class=\"now playing\" ng-show=\"player.active\">\n" +
-    "        <img class=\"poster\" src=\"{{player.item.art | thumb | asset:configuration.host.ip}}\" ng-tap=\"go('/now/playing','none')\"\n" +
+    "        <img class=\"poster\" source=\"{{player.item.art | thumb | asset:configuration.host.ip}}\" ng-tap=\"go('/now/playing','none')\"\n" +
     "             ng-show=\"hasPoster(player.item.art)\"/>\n" +
     "        <img class=\"poster unknown\" src=\"img/blank.gif\" ng-tap=\"go('/now/playing')\"\n" +
     "             ng-hide=\"hasPoster(player.item.art)\"/>\n" +
     "        <h1>{{getLabel(player.item)}}</h1>\n" +
     "        <footer>\n" +
     "            <div class=\"row actions\">\n" +
-    "                <div class=\"offset4 span4 icon-play\" ng-tap=\"togglePlay()\"  ng-show=\"!player.speed\">\n" +
+    "                <div class=\"offset4 span4 icon-play\" ng-tap=\"xbmc.togglePlay()\"  ng-show=\"!player.speed\">\n" +
     "                </div>\n" +
-    "                <div class=\"offset4 span4 icon-pause\" ng-tap=\"togglePlay()\"  ng-show=\"player.speed\">\n" +
+    "                <div class=\"offset4 span4 icon-pause\" ng-tap=\"xbmc.togglePlay()\"  ng-show=\"player.speed\">\n" +
     "                </div>\n" +
-    "                <div class=\"span3\" ng-tap=\"next()\"><i class=\"icon-fast-forward\"></i></div>\n" +
+    "                <div class=\"span3\" ng-tap=\"xbmc.next()\"><i class=\"icon-fast-forward\"></i></div>\n" +
     "            </div>\n" +
     "        </footer>\n" +
     "    </div>\n" +
@@ -2819,7 +3882,7 @@ angular.module("now/playing.tpl.html", []).run(["$templateCache", function($temp
     "\n" +
     "            <div ng-switch-default class=\"detail\">\n" +
     "                <div class=\"row\">\n" +
-    "                    <img class=\"offset1 span10\" src=\"{{library.item.thumbnail | asset:configuration.host.ip}}\"/>\n" +
+    "                    <img class=\"offset1 span10\" source=\"{{library.item.thumbnail | asset:configuration.host.ip}}\"/>\n" +
     "                </div>\n" +
     "                <h1>\n" +
     "                    {{library.item.label}}\n" +
@@ -2827,9 +3890,10 @@ angular.module("now/playing.tpl.html", []).run(["$templateCache", function($temp
     "            </div>\n" +
     "        </div>\n" +
     "        <div class=\"seek-wrapper\">\n" +
-    "            <div class=\"row times\">\n" +
+    "            <div class=\"row times\" ng-tap=\"toggleTimePicker()\">\n" +
     "                {{player.seek.time | time | date:'HH:mm:ss'}}/\n" +
     "                {{player.seek.totaltime | time | date:'HH:mm:ss'}}\n" +
+    "                [-{{(player.seek.totaltime - player.seek.time)  | time | date:'HH:mm:ss'}}]\n" +
     "            </div>\n" +
     "            <div class=\"row\">\n" +
     "                <div class=\"span2 action\" ng-tap=\"toggleAudioStreams()\" ng-show=\"isTypeVideo()\">\n" +
@@ -2838,7 +3902,7 @@ angular.module("now/playing.tpl.html", []).run(["$templateCache", function($temp
     "                <div ng-class=\"{span8 :isTypeVideo(), span10 : !isTypeVideo(), offset1 : !isTypeVideo()}\"\n" +
     "                     role=\"slider\" aria-valuemin=\"0\" aria-valuenow=\"0\" aria-valuemax=\"100\">\n" +
     "                    <div seekbar seekbar-value=\"player.seek.percentage\" seekbar-max=\"100\"\n" +
-    "                         on-seekbar-changed=\"onSeekbarChanged(newValue);\"></div>\n" +
+    "                         on-seekbar-changed=\"onSeekbarChanged(newValue)\"></div>\n" +
     "                </div>\n" +
     "                <div class=\"span2 action\" ng-tap=\"toggleSubtitles()\" ng-show=\"isTypeVideo()\">\n" +
     "                    <i class=\"icon-quote-left\"></i>\n" +
@@ -2853,7 +3917,7 @@ angular.module("now/playing.tpl.html", []).run(["$templateCache", function($temp
     "        <h1> Audio Streams </h1>\n" +
     "    </header>\n" +
     "    <menu>\n" +
-    "        <button ng-repeat=\"audio in player.audiostreams\" ng-tap=\"select('audio', audio)\">\n" +
+    "        <button ng-repeat=\"audio in player.audiostreams\" ng-tap=\"setAudioStream(audio)\">\n" +
     "          {{audio.name}} ( {{audio.language}})\n" +
     "          <i class=\"pull-right icon-check\" ng-show=\"isSelected(player.current.audiostream, audio)\"></i>\n" +
     "        </button>\n" +
@@ -2866,15 +3930,32 @@ angular.module("now/playing.tpl.html", []).run(["$templateCache", function($temp
     "        <h1>Subtitles</h1>\n" +
     "    </header>\n" +
     "    <menu>\n" +
-    "        <button ng-tap=\"select('subtitle', 'off')\">\n" +
+    "        <button ng-tap=\"setSubtitle('off')\">\n" +
     "            None\n" +
     "            <i class=\"pull-right icon-check\" ng-show=\"isSelected(player.current.subtitle, 'off')\"></i>\n" +
     "        </button>\n" +
-    "        <button ng-repeat=\"subtitle in player.subtitles\" ng-tap=\"select('subtitle', subtitle)\">\n" +
+    "        <button ng-repeat=\"subtitle in player.subtitles\" ng-tap=\"setSubtitle(subtitle)\">\n" +
     "            {{subtitle.name}} ({{subtitle.language}})\n" +
     "            <i class=\"pull-right icon-check\" ng-show=\"isSelected(player.current.subtitle, subtitle)\"></i>\n" +
     "        </button>\n" +
     "        <button ng-tap=\"toggleSubtitles()\"> Cancel </button>\n" +
+    "    </menu>\n" +
+    "</form>\n" +
+    "\n" +
+    "<form role=\"dialog\" data-type=\"action\" class=\"chooser\" onsubmit=\"return false;\" ng-show=\"showTimePicker\">\n" +
+    "    <header>\n" +
+    "        <h1> Select time </h1>\n" +
+    "    </header>\n" +
+    "    <menu>\n" +
+    "        <div class=\"time\">\n" +
+    "            <div ng-model=\"seekTime\" class=\"picker\">\n" +
+    "              <timepicker hour-step=\"1\" minute-step=\"1\" show-meridian=\"false\"></timepicker>\n" +
+    "            </div>\n" +
+    "        </div>\n" +
+    "        <div class=\"row\">\n" +
+    "            <button class=\"span5 offset1\" ng-tap=\"toggleTimePicker()\"> Cancel </button>\n" +
+    "            <button class=\"span5 recommend\"   ng-tap=\"onValidateSeekTime()\"> Ok </button>\n" +
+    "        </div>\n" +
     "    </menu>\n" +
     "</form>");
 }]);
@@ -2887,9 +3968,9 @@ angular.module("now/playlist.tpl.html", []).run(["$templateCache", function($tem
     "        <ul class=\"view songs\">\n" +
     "            <li class=\"row \" ng-repeat=\"item in items\"\n" +
     "                ng-class-odd=\"'odd'\"\n" +
-    "                ng-tap=\"next($index)\">\n" +
+    "                ng-tap=\"xbmc.goTo($index)\">\n" +
     "                    <img class=\"span4 poster\"\n" +
-    "                         src=\"{{item.art | thumb | asset:configuration.host.ip | fallback:'img/backgrounds/low-contrast-128.png'}}\"/>\n" +
+    "                         source=\"{{item.art | thumb | asset:configuration.host.ip | fallback:'img/backgrounds/low-contrast-128.png'}}\"/>\n" +
     "                <div class=\"span8\">\n" +
     "                    <p>{{item.label}}</p>\n" +
     "                    <p ng-show=\"item.duration\">{{item.duration | time | date :'mm:ss'}}</p>\n" +
@@ -2907,29 +3988,32 @@ angular.module("remote/remote.tpl.html", []).run(["$templateCache", function($te
   $templateCache.put("remote/remote.tpl.html",
     "<div class=\"remote\">\n" +
     "    <div class=\"row shortcuts\">\n" +
-    "        <div class=\"action\" ng-tap=\"xbmc.send('Input.ContextMenu')\">\n" +
-    "            <i class=\"icon icon-list-ul\"></i>\n" +
-    "        </div>\n" +
-    "        <div class=\"action\" ng-tap=\"xbmc.send('Input.Info')\">\n" +
-    "            <i class=\"icon icon-info-sign\"></i>\n" +
-    "        </div>\n" +
-    "         <div class=\"action\" ng-tap=\"xbmc.send('Input.Home')\">\n" +
+    "        <div class=\"action\" ng-tap=\"xbmc.home()\">\n" +
     "            <i class=\"icon icon-home\"></i>\n" +
     "        </div>\n" +
-    "        <div class=\"action\" ng-tap=\"xbmc.send('System.Shutdown')\">\n" +
+    "        <div class=\"action\" ng-tap=\"xbmc.contextmenu()\">\n" +
+    "            <i class=\"icon icon-list-ul\"></i>\n" +
+    "        </div>\n" +
+    "        <div class=\"action\" ng-tap=\"xbmc.info()\">\n" +
+    "            <i class=\"icon icon-info-sign\"></i>\n" +
+    "        </div>\n" +
+    "        <div class=\"action\" ng-tap=\"xbmc.showOSD()\">\n" +
+    "            <i class=\"icon icon-ellipsis-horizontal\"></i>\n" +
+    "        </div>\n" +
+    "        <div class=\"action\" ng-tap=\"xbmc.shutdown()\">\n" +
     "            <i class=\"icon icon-power-off\"></i>\n" +
     "        </div>\n" +
     "    </div>\n" +
     "\n" +
     "    <div class=\"sound\">\n" +
     "        <div class=\"row\">\n" +
-    "            <div class=\"action\" ng-tap=\"toggleMute()\">\n" +
+    "            <div class=\"action\" ng-tap=\"xbmc.mute()\">\n" +
     "                <i class=\"icon icon-volume-off\"></i>\n" +
     "            </div>\n" +
-    "            <div class=\"action\" ng-tap=\"setVolume(volume -1)\">\n" +
+    "            <div class=\"action\" ng-tap=\"xbmc.decreaseVolume()\">\n" +
     "                <i class=\"icon icon-volume-down\"></i>\n" +
     "            </div>\n" +
-    "            <div class=\"action\"  ng-tap=\"setVolume(volume +1)\">\n" +
+    "            <div class=\"action\"  ng-tap=\"xbmc.increaseVolume()\">\n" +
     "                <i class=\"icon icon-volume-up\"></i>\n" +
     "            </div>\n" +
     "        </div>\n" +
@@ -2937,42 +4021,59 @@ angular.module("remote/remote.tpl.html", []).run(["$templateCache", function($te
     "\n" +
     "    <div class=\"navigation\">\n" +
     "        <div class=\"row\">\n" +
-    "            <div class=\"action offseted direction\" ng-tap=\"xbmc.send('Input.Up')\">\n" +
+    "            <div class=\"action offseted direction\" ng-tap=\"xbmc.up()\">\n" +
     "                <i class=\"icon icon-chevron-up\"></i>\n" +
     "            </div>\n" +
     "        </div>\n" +
     "        <div class=\"row\">\n" +
-    "            <div class=\"action direction\" ng-tap=\"xbmc.send('Input.Left')\">\n" +
+    "            <div class=\"action direction\" ng-tap=\"xbmc.left()\">\n" +
     "                <i class=\"icon icon-chevron-left\"></i>\n" +
     "            </div>\n" +
-    "            <div class=\"action\" ng-tap=\"xbmc.send('Input.Select')\">\n" +
+    "            <div class=\"action\" ng-tap=\"xbmc.select()\">\n" +
     "                <i class=\"icon icon-circle\"></i>\n" +
     "            </div>\n" +
-    "            <div class=\"action direction\" ng-tap=\"xbmc.send('Input.Right')\">\n" +
+    "            <div class=\"action direction\" ng-tap=\"xbmc.right()\">\n" +
     "                <i class=\"icon icon-chevron-right\"></i>\n" +
     "            </div>\n" +
     "        </div>\n" +
     "        <div class=\"row\">\n" +
-    "            <div class=\"action\" ng-tap=\"xbmc.send('Input.Back')\">\n" +
+    "            <div class=\"action\" ng-tap=\"xbmc.back()\">\n" +
     "                <i class=\"icon icon-mail-reply\"></i>\n" +
     "            </div>\n" +
-    "            <div class=\"action direction\" ng-tap=\"xbmc.send('Input.Down')\">\n" +
+    "            <div class=\"action direction\" ng-tap=\"xbmc.down()\">\n" +
     "                <i class=\"icon icon-chevron-down\"></i>\n" +
     "            </div>\n" +
-    "            <div class=\"action\"></div>\n" +
+    "            <div class=\"action\" ng-tap=\"toggleKeyboard()\">\n" +
+    "                <i class=\"icon icon-keyboard\"></i>\n" +
+    "            </div>\n" +
     "        </div>\n" +
     "    </div>\n" +
-    "</div>");
+    "</div>\n" +
+    "\n" +
+    "<form role=\"dialog\" data-type=\"action\" class=\"chooser\" onsubmit=\"return false;\" ng-show=\"showKeyboard\">\n" +
+    "    <header>\n" +
+    "        <h1> Send text </h1>\n" +
+    "    </header>\n" +
+    "    <menu>\n" +
+    "        <div class=\"row\"  style=\"padding-bottom:6rem;\" >\n" +
+    "            <textarea class=\"offset1 span10\" ng-model=\"textToSend\"\n" +
+    "                      placeholder=\"Enter text to send\"></textarea>\n" +
+    "        </div>\n" +
+    "        <div class=\"row\">\n" +
+    "            <button class=\"span5 offset1\" ng-tap=\"toggleKeyboard()\"> Cancel </button>\n" +
+    "            <button class=\"span5 recommend\"   ng-tap=\"onValidateText()\"> Ok </button>\n" +
+    "        </div>\n" +
+    "    </menu>\n" +
+    "</form>");
 }]);
 
 angular.module("settings/wizard.tpl.html", []).run(["$templateCache", function($templateCache) {
   $templateCache.put("settings/wizard.tpl.html",
-    "<form class=\"wizard\">\n" +
+    "<form class=\"wizard\" name=\"wizard\">\n" +
     "    <h1>\n" +
     "        <img src=\"img/backgrounds/computer-icon.png\" width=\"64\" height=\"64\"/>\n" +
     "        <div>Host wizard</div>\n" +
     "    </h1>\n" +
-    "\n" +
     "    <p>\n" +
     "        <label>Display name:</label>\n" +
     "        <input type=\"text\" placeholder=\"Ex : HTPC\" required=\"\" ng-model=\"configuration.host.displayName\" tabindex=\"1\">\n" +
@@ -2980,16 +4081,52 @@ angular.module("settings/wizard.tpl.html", []).run(["$templateCache", function($
     "    </p>\n" +
     "    <p>\n" +
     "        <label>Host IP:</label>\n" +
-    "        <input type=\"text\" placeholder=\"Ex : 192.16.0.1\" required=\"\" ng-model=\"configuration.host.ip\" tabindex=\"2\">\n" +
+    "        <input name=\"ip\" type=\"text\" placeholder=\"Ex : 192.16.0.1\" required=\"\" ng-pattern=\"validIpAddressRegex\" ng-model=\"configuration.host.ip\" tabindex=\"2\">\n" +
     "        <button type=\"reset\" class=\"icon-remove\"></button>\n" +
+    "        \n" +
+    "    </p>\n" +
+    "    <p ng-show=\"wizard.ip.$error.pattern\" class=\"message\">\n" +
+    "        <label>\n" +
+    "            Host IP must be a vild IP address\n" +
+    "        </label>\n" +
     "    </p>\n" +
     "    <p>\n" +
     "        <label>Api port</label>\n" +
-    "        <input type=\"text\" value=\"9090\" placeholder=\"Ex : 9090\" required=\"\" ng-model=\"configuration.host.port\" tabindex=\"3\">\n" +
+    "        <input type=\"text\" placeholder=\"Ex : 9090\" required=\"\" ng-model=\"configuration.host.port\" tabindex=\"3\">\n" +
     "        <button type=\"reset\" class=\"icon-remove\"></button>\n" +
     "    </p>\n" +
-    "    <button ng-tap=\"save()\">Save</button>\n" +
+    "    <button  class=\"recommend\" ng-tap=\"save()\">Save</button>\n" +
     "</form>");
+}]);
+
+angular.module("template/timepicker/timepicker.html", []).run(["$templateCache", function($templateCache) {
+  $templateCache.put("template/timepicker/timepicker.html",
+    "<table>\n" +
+    "  <tbody>\n" +
+    "    <tr>\n" +
+    "      <td><a ng-click=\"incrementHours()\" class=\"btn-link\"><span class=\"icon-chevron-up\"></span></a></td>\n" +
+    "      <td>&nbsp;</td>\n" +
+    "      <td><a ng-click=\"incrementMinutes()\" class=\"btn-link\"><span class=\"icon-chevron-up\"></span></a></td>\n" +
+    "      <td ng-show=\"showMeridian\"></td>\n" +
+    "    </tr>\n" +
+    "    <tr>\n" +
+    "      <td style=\"width:50px;\" class=\"form-group\" ng-class=\"{'has-error': invalidHours}\">\n" +
+    "        <input type=\"text\" ng-model=\"hours\" ng-change=\"updateHours()\" class=\"form-control text-center\" ng-mousewheel=\"incrementHours()\" ng-readonly=\"readonlyInput\" maxlength=\"2\">\n" +
+    "      </td>\n" +
+    "      <td>:</td>\n" +
+    "      <td style=\"width:50px;\" class=\"form-group\" ng-class=\"{'has-error': invalidMinutes}\">\n" +
+    "        <input type=\"text\" ng-model=\"minutes\" ng-change=\"updateMinutes()\" class=\"form-control text-center\" ng-readonly=\"readonlyInput\" maxlength=\"2\">\n" +
+    "      </td>\n" +
+    "      <td ng-show=\"showMeridian\"><button type=\"button\" class=\"btn btn-default text-center\" ng-click=\"toggleMeridian()\">{{meridian}}</button></td>\n" +
+    "    </tr>\n" +
+    "    <tr>\n" +
+    "      <td><a ng-click=\"decrementHours()\" class=\"btn-link\"><span class=\"icon-chevron-down\"></span></a></td>\n" +
+    "      <td>&nbsp;</td>\n" +
+    "      <td><a ng-click=\"decrementMinutes()\" class=\"btn-link\"><span class=\"icon-chevron-down\"></span></a></td>\n" +
+    "      <td ng-show=\"showMeridian\"></td>\n" +
+    "    </tr>\n" +
+    "  </tbody>\n" +
+    "</table>");
 }]);
 
 angular.module("tvshow/details.tpl.html", []).run(["$templateCache", function($templateCache) {
@@ -2998,17 +4135,18 @@ angular.module("tvshow/details.tpl.html", []).run(["$templateCache", function($t
     "    <div ng-switch-when=\"true\" class=\"icon-spinner icon-spin icon-large\"></div>\n" +
     "    <div ng-switch-when=\"false\" class=\"tvshow\">\n" +
     "        <img class=\"banner\"\n" +
-    "             src=\"{{library.item.art['tvshow.banner']  | asset:configuration.host.ip | fallback:'img/backgrounds/low-contrast-256.png'}}\"\n" +
+    "             source=\"{{library.item.art['tvshow.banner']  | asset:configuration.host.ip | fallback:'img/backgrounds/low-contrast-256.png'}}\"\n" +
     "             />\n" +
     "\n" +
     "        <div class=\"episode detail\">\n" +
-    "\n" +
     "            <h1>\n" +
-    "                <div rating rating-value=\"library.item.rating\" rating-max=\"10\"></div>\n" +
     "                {{library.item.title}}\n" +
     "            </h1>\n" +
     "            <div class=\"row\">\n" +
-    "                <img class=\"offset1 span10\" src=\"{{library.item.thumbnail  | asset:configuration.host.ip}}\"/>\n" +
+    "                <img class=\"offset1 span10\" source=\"{{library.item.thumbnail  | asset:configuration.host.ip}}\"/>\n" +
+    "            </div>\n" +
+    "            <div class=\"row\">\n" +
+    "                 <div class=\"rating\" rating rating-value=\"library.item.rating\" rating-max=\"10\"></div>\n" +
     "            </div>\n" +
     "            <p>\n" +
     "                {{library.item.plot}}\n" +
@@ -3025,12 +4163,12 @@ angular.module("tvshow/episodes.tpl.html", []).run(["$templateCache", function($
     "<div ng-switch on=\"loading\" ng-class=\"{loading : loading}\">\n" +
     "    <div ng-switch-when=\"true\" class=\"icon-spinner icon-spin icon-large\"></div>\n" +
     "    <div ng-switch-when=\"false\" class=\"tvshow\">\n" +
-    "        <img class=\"banner\" src=\"{{episodes[0].art['tvshow.banner']  | asset:configuration.host.ip}}\" alt=\"show.title\"/>\n" +
+    "        <img class=\"banner\" source=\"{{episodes[0].art['tvshow.banner']  | asset:configuration.host.ip}}\" alt=\"show.title\"/>\n" +
     "        <ul data-type=\"list\" class=\"view\">\n" +
     "            <li class=\"row episode\" ng-repeat=\"episode in episodes| filter:library.criteria\"\n" +
     "                ng-tap=\"go('/tvshow/' + tvshowid + '/'+season+'/'+episode.episodeid, 'none')\"\n" +
     "                ng-class-odd=\"'odd'\">\n" +
-    "                <img class=\"span4\" src=\"{{episode.thumbnail  | asset:configuration.host.ip}}\"/>\n" +
+    "                <img class=\"span4\" source=\"{{episode.thumbnail  | asset:configuration.host.ip}}\"/>\n" +
     "\n" +
     "                <div class=\"span7\">\n" +
     "                    <p>\n" +
@@ -3062,7 +4200,7 @@ angular.module("tvshow/list.tpl.html", []).run(["$templateCache", function($temp
     "            ng-tap=\"go('/tvshow/' + show.tvshowid, 'none')\"\n" +
     "            ng-class-odd=\"'odd'\">\n" +
     "            <em class=\"playcount\" ng-show=\"show.playcount\">&#10003;</em>\n" +
-    "            <img class=\"banner\" src=\"{{show.art.banner  | asset:configuration.host.ip | fallback:'img/backgrounds/banner.png'}}\" alt=\"show.title\"/>\n" +
+    "            <img class=\"banner\" source=\"{{show.art.banner  | asset:configuration.host.ip | fallback:'img/backgrounds/banner.png'}}\" alt=\"show.title\"/>\n" +
     "\n" +
     "            <div class=\"rating\">\n" +
     "                <em>{{show.rating | number:1}}</em>\n" +
@@ -3084,7 +4222,7 @@ angular.module("tvshow/seasons.tpl.html", []).run(["$templateCache", function($t
     "        <ul data-type=\"list\" class=\"view\">\n" +
     "            <li class=\"row season\" ng-repeat=\"season in seasons | filter:library.criteria\"\n" +
     "                ng-tap=\"go('/tvshow/' + tvshowid + '/' + season.season)\">\n" +
-    "                <img class=\"span4 poster\" src=\"{{season.thumbnail  | asset:configuration.host.ip}}\"/>\n" +
+    "                <img class=\"span4 poster\" source=\"{{season.thumbnail  | asset:configuration.host.ip}}\"/>\n" +
     "\n" +
     "                <div class=\"span8\">\n" +
     "                    <p>\n" +
@@ -3098,7 +4236,7 @@ angular.module("tvshow/seasons.tpl.html", []).run(["$templateCache", function($t
     "            </li>\n" +
     "            <li ng-show=\"!seasons.length\" class=\"empty list\">No item here :'(</li>\n" +
     "        </ul>\n" +
-    "        <div class=\"fanart\" style=\"background-image: url({{seasons[0].fanart | asset:configuration.host.ip}});\"></div>\n" +
+    "        <div class=\"fanart\" source=\"{{seasons[0].fanart | asset:configuration.host.ip}}\" direction=\"height\"></div>\n" +
     "    </div>\n" +
     "\n" +
     "");
