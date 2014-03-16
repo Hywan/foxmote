@@ -1554,6 +1554,7 @@ angular.module('ui.bootstrap.timepicker', [])
 angular.module('directives.image', [])
     .directive('source', function () {
         return function (scope, elm, attrs) {
+            var element = elm[0];
             var asChromeApp = false;
             try {
                 asChromeApp = typeof window.localStorage === 'undefined';
@@ -1562,13 +1563,18 @@ angular.module('directives.image', [])
             }
             if(asChromeApp) {
                 var remoteImage = new RAL.RemoteImage({
-                    element : elm[0],
+                    element : element,
                     src : attrs.source,
-                    width : elm[0].offsetWidth
+                    width : element.offsetWidth
                 });
                 RAL.Queue.add(remoteImage, true);
             } else {
-                elm[0].src = attrs.source;
+                if(element.tagName.toLowerCase() === 'img') {
+                    element.src = attrs.source;
+                } else {
+                    element.style.backgroundImage = 'url(' + attrs.source + ')';
+                } 
+                
             }
         };
     });
