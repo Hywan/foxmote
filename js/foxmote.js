@@ -1,4 +1,4 @@
-/*! foxmote - v0.0.1 - 2014-03-16
+/*! foxmote - v0.0.1 - 2014-03-28
  * Copyright (c) 2014 Nicolas ABRIC;
  * Licensed MIT
  */
@@ -1778,9 +1778,9 @@ angular.module('directives.tap', [])
     });
 angular.module('filters.xbmc.asset', [])
     .filter('asset', function () {
-        return function (input, ip) {
-            if (input && ip) {
-                return 'http://' + ip + ':8080/image/' + encodeURIComponent(input);
+        return function (input, host) {
+            if (input && host) {
+                return 'http://' + host.ip + ':'+host.httpPort+'/image/' + encodeURIComponent(input);
             }     else {
                 return '';
             }
@@ -1905,7 +1905,6 @@ angular.module('services.io', ['services.websocket'])
 
             function onMessage(event) {
                 if (event.data !== '') {
-                    console.log(event.data);
                     var data = JSON.parse(event.data);
                     if (callbacks.hasOwnProperty(data.id)) {
                         var cb = callbacks[data.id];
@@ -2282,6 +2281,19 @@ angular.module('services.xbmc', ['services.io'])
                 });
             };
 
+            var subtitleState = null;
+            factory.toggleSubtitles = function () {
+                if(subtitleState === null) {
+                    factory.setSubtitle('off');
+                    subtitleState = 'off';
+                } else {
+                    factory.setSubtitle(1);
+                    subtitleState = null;
+                }
+                
+                factory.setSubtitle(1);
+            },
+
             factory.setSubtitle = function(subtitle) {
                 io.send('Player.SetSubtitle', {
                     'playerid': activePlayer,
@@ -2545,10 +2557,15 @@ angular.module('app')
                 host: {
                     ip: '',
                     port: '9090',
+                    httpPort : '8080',
                     displayName: ''
                 }
             };
             $scope.xbmc = xbmc;
+
+            $scope.back = function() {
+                $scope.go($scope.previousHash);
+            };
 
             $scope.go = function(path) {
                 $location.path(path);
@@ -2713,6 +2730,7 @@ angular.module('app')
                     $scope.initialized = true;
                     if(value!==null) {
                         $scope.configuration = JSON.parse(value);
+                        $scope.configuration.host.httpPort = $scope.configuration.host.httpPort || '8080';
                         $scope.xbmc.connect($scope.configuration.host.ip, $scope.configuration.host.port);
                          $scope.go('/');
                     } else {
@@ -2736,6 +2754,15 @@ angular.module('app')
             };
 
             main.addEventListener('swipe', onSwipe.bind(this));
+
+            $scope.previousState = null;
+            $scope.$on('$stateChangeSuccess', function(event, toState, toParams, fromState, fromParams) { 
+                var hash = fromState.url;
+                angular.forEach(fromParams, function(value, key){
+                    hash = hash.replace(':'+key, value);
+                });
+                $scope.previousHash = hash;
+            });
         }
     ]);
 angular.module('app')
@@ -2788,7 +2815,7 @@ angular.module('app')
         $stateProvider.state('moviedetails', {
             url: '/movie/:movieid',
             views: {
-                header: {templateUrl: 'layout/headers/basic.tpl.html'},
+                header: {templateUrl: 'layout/headers/backable.tpl.html'},
                 body: {
                     templateUrl: 'movie/details.tpl.html',
                     controller: 'MovieDetailsCtrl'
@@ -2956,7 +2983,7 @@ angular.module('app')
         $stateProvider.state('filteredSongs', {
             url: '/music/songs/:filter/:filterId',
             views: {
-                header: {templateUrl: 'layout/headers/searchable.tpl.html'},
+                header: {templateUrl: 'layout/headers/backable.tpl.html'},
                 body: {
                     templateUrl: 'music/songs.tpl.html', controller: 'MusicSongsCtrl'
                 }
@@ -3012,7 +3039,7 @@ angular.module('app')
             var assetFilter = $filter('asset');
             var hasCover = typeof $scope.filter !== 'undefined' && song && song.thumbnail !== '';
             if (hasCover) {
-                return assetFilter(song.thumbnail, $scope.configuration.host.ip);
+                return assetFilter(song.thumbnail, $scope.configuration.host);
             } else {
                 return 'img/backgrounds/album.png';
             }
@@ -3024,7 +3051,7 @@ angular.module('app')
 
         $scope.play = function (item, index) {
             $scope.xbmc.open(item);
-            if (index + 1 < $scope.songs.length) {
+            if ($scope.filter && index + 1 < $scope.songs.length) {
                 $scope.queue = $scope.songs.slice(index + 1);
             }
         };
@@ -3348,7 +3375,7 @@ angular.module('app')
                 url: '/tvshow/:tvshowid/:season/:episodeid',
                 views: {
                     header: {
-                        templateUrl: 'layout/headers/basic.tpl.html'
+                        templateUrl: 'layout/headers/backable.tpl.html'
                     },
                     body: {
                         templateUrl: 'tvshow/details.tpl.html',
@@ -3471,7 +3498,7 @@ angular.module('app')
                 url: '/tvshow/:tvshowid',
                 views: {
                     header: {
-                        templateUrl: 'layout/headers/searchable.tpl.html'
+                        templateUrl: 'layout/headers/backable.tpl.html'
                     },
                     body: {
                         templateUrl: 'tvshow/seasons.tpl.html',
@@ -3506,7 +3533,7 @@ angular.module('app')
             }
         }
     ])
-angular.module('templates.app', ['layout/footers/basic.tpl.html', 'layout/footers/details.tpl.html', 'layout/footers/player.tpl.html', 'layout/headers/basic.tpl.html', 'layout/headers/searchable.tpl.html', 'movie/details.tpl.html', 'movie/list.tpl.html', 'music/albums.tpl.html', 'music/artists.tpl.html', 'music/musics.tpl.html', 'music/songs.tpl.html', 'navigation/navigation.tpl.html', 'now/playing.tpl.html', 'now/playlist.tpl.html', 'remote/remote.tpl.html', 'settings/wizard.tpl.html', 'template/timepicker/timepicker.html', 'tvshow/details.tpl.html', 'tvshow/episodes.tpl.html', 'tvshow/list.tpl.html', 'tvshow/seasons.tpl.html']);
+angular.module('templates.app', ['layout/footers/basic.tpl.html', 'layout/footers/details.tpl.html', 'layout/footers/player.tpl.html', 'layout/headers/backable.tpl.html', 'layout/headers/basic.tpl.html', 'layout/headers/searchable.tpl.html', 'movie/details.tpl.html', 'movie/list.tpl.html', 'music/albums.tpl.html', 'music/artists.tpl.html', 'music/musics.tpl.html', 'music/songs.tpl.html', 'navigation/navigation.tpl.html', 'now/playing.tpl.html', 'now/playlist.tpl.html', 'remote/remote.tpl.html', 'settings/wizard.tpl.html', 'template/timepicker/timepicker.html', 'tvshow/details.tpl.html', 'tvshow/episodes.tpl.html', 'tvshow/list.tpl.html', 'tvshow/seasons.tpl.html']);
 
 angular.module("layout/footers/basic.tpl.html", []).run(["$templateCache", function($templateCache) {
   $templateCache.put("layout/footers/basic.tpl.html",
@@ -3584,12 +3611,36 @@ angular.module("layout/footers/player.tpl.html", []).run(["$templateCache", func
     "");
 }]);
 
+angular.module("layout/headers/backable.tpl.html", []).run(["$templateCache", function($templateCache) {
+  $templateCache.put("layout/headers/backable.tpl.html",
+    "<a ng-tap=\"$parent.toggleDrawer()\"><i class=\"icon icon-reorder\"></i></a>\n" +
+    "<h1>\n" +
+    "    Foxmote\n" +
+    "    <div class=\"logo\" ng-tap=\"back()\">\n" +
+    "        <i class=\"icon icon-chevron-left\"></i>\n" +
+    "        <i class=\"foxmote\"></i>\n" +
+    "    </div>\n" +
+    "</h1>\n" +
+    "<h2 ng-class=\"{connected : connected, disconnected : !connected}\"\n" +
+    "    ng-switch on=\"connected\">\n" +
+    "    <div ng-switch-when=\"true\">\n" +
+    "        {{configuration.host.displayName}}\n" +
+    "        <span class=\"pull-right\">{{configuration.host.ip}}</span>\n" +
+    "    </div>\n" +
+    "    <div ng-switch-when=\"false\">\n" +
+    "      No connection\n" +
+    "    </div>\n" +
+    "</h2>");
+}]);
+
 angular.module("layout/headers/basic.tpl.html", []).run(["$templateCache", function($templateCache) {
   $templateCache.put("layout/headers/basic.tpl.html",
     "<a ng-tap=\"$parent.toggleDrawer()\"><i class=\"icon icon-reorder\"></i></a>\n" +
     "<h1>\n" +
     "    Foxmote\n" +
-    "    <i class=\"logo\"></i>\n" +
+    "    <div class=\"logo\" >\n" +
+    "        <i class=\"foxmote\"></i>\n" +
+    "    </div>\n" +
     "</h1>\n" +
     "<h2 ng-class=\"{connected : connected, disconnected : !connected}\"\n" +
     "    ng-switch on=\"connected\">\n" +
@@ -3635,7 +3686,7 @@ angular.module("movie/details.tpl.html", []).run(["$templateCache", function($te
     "            </h1>\n" +
     "\n" +
     "            <div class=\"row\">\n" +
-    "                <img class=\"offset1 span5 poster\" source=\"{{library.item.thumbnail | asset:configuration.host.ip | fallback:'img/backgrounds/low-contrast-256.png'}}\"/>\n" +
+    "                <img class=\"offset1 span5 poster\" source=\"{{library.item.thumbnail | asset:configuration.host | fallback:'img/backgrounds/low-contrast-256.png'}}\"/>\n" +
     "\n" +
     "                <div class=\"span6\">\n" +
     "                    <ul>\n" +
@@ -3655,7 +3706,7 @@ angular.module("movie/details.tpl.html", []).run(["$templateCache", function($te
     "                    </ul>\n" +
     "                </div>\n" +
     "            </div>\n" +
-    "            <div class=\"fanart\" source=\"{{library.item.fanart | asset:configuration.host.ip}}\"></div>\n" +
+    "            <div class=\"fanart\" source=\"{{library.item.fanart | asset:configuration.host}}\"></div>\n" +
     "        </div>\n" +
     "        <div>\n" +
     "            <div class=\"rating\" rating rating-value=\"library.item.rating\" rating-max=\"10\"></div>\n" +
@@ -3673,7 +3724,7 @@ angular.module("movie/list.tpl.html", []).run(["$templateCache", function($templ
     "        <li class=\"row movie\" ng-repeat=\"movie in movies | filter:library.criteria\"\n" +
     "            ng-tap=\"go('/movie/' + movie.movieid, 'none')\"\n" +
     "            ng-class-odd=\"'odd'\">\n" +
-    "            <img class=\"span4 poster\" source=\"{{movie.thumbnail | asset:configuration.host.ip}}\"/>\n" +
+    "            <img class=\"span4 poster\" source=\"{{movie.thumbnail | asset:configuration.host}}\"/>\n" +
     "            <em class=\"playcount\" ng-show=\"movie.playcount\">&#10003;</em>\n" +
     "\n" +
     "            <div class=\"span7\">\n" +
@@ -3703,7 +3754,7 @@ angular.module("music/albums.tpl.html", []).run(["$templateCache", function($tem
     "        <li class=\"row album\" ng-repeat=\"album in albums | filter:library.criteria\"\n" +
     "            ng-tap=\"go('/music/songs/albumid/' + album.albumid)\"\n" +
     "            ng-class-odd=\"'odd'\">\n" +
-    "            <img class=\"span3 cover\" source=\"{{album.thumbnail | asset:configuration.host.ip}}\"\n" +
+    "            <img class=\"span3 cover\" source=\"{{album.thumbnail | asset:configuration.host}}\"\n" +
     "                 ng-show=\"hasCover(album)\"/>\n" +
     "            <img class=\"span3 cover unknow\" src=\"img/blank.gif\"\n" +
     "                 ng-hide=\"hasCover(album)\"/>\n" +
@@ -3731,7 +3782,7 @@ angular.module("music/artists.tpl.html", []).run(["$templateCache", function($te
     "        <li class=\"row artist\" ng-repeat=\"artist in artists | filter:library.criteria\"\n" +
     "            ng-tap=\"go('/music/albums/artistid/' + artist.artistid)\"\n" +
     "            ng-class-odd=\"'odd'\">\n" +
-    "            <img class=\"span3 cover\" source=\"{{artist.thumbnail | asset:configuration.host.ip}}\"\n" +
+    "            <img class=\"span3 cover\" source=\"{{artist.thumbnail | asset:configuration.host}}\"\n" +
     "                 ng-show=\"hasCover(artist)\"/>\n" +
     "            <img class=\"span3 cover unknow\" src=\"img/blank.gif\" ng-hide=\"hasCover(artist)\"/>\n" +
     "\n" +
@@ -3854,10 +3905,14 @@ angular.module("navigation/navigation.tpl.html", []).run(["$templateCache", func
     "        </ul>\n" +
     "    </nav>\n" +
     "    <div class=\"now playing\" ng-show=\"player.active\">\n" +
-    "        <img class=\"poster\" source=\"{{player.item.art | thumb | asset:configuration.host.ip}}\" ng-tap=\"go('/now/playing','none')\"\n" +
-    "             ng-show=\"hasPoster(player.item.art)\"/>\n" +
-    "        <img class=\"poster unknown\" src=\"img/blank.gif\" ng-tap=\"go('/now/playing')\"\n" +
-    "             ng-hide=\"hasPoster(player.item.art)\"/>\n" +
+    "        <div ng-switch on=\"hasPoster(player.item.art)\">\n" +
+    "            <div ng-switch-when=\"true\" ng-tap=\"go('/now/playing','none')\">\n" +
+    "                <img class=\"poster\" source=\"{{player.item.art | thumb | asset:configuration.host}}\" />\n" +
+    "            </div>\n" +
+    "            <div ng-switch-when=\"false\" ng-tap=\"go('/now/playing')\">\n" +
+    "                <img class=\"poster unknown\" src=\"img/blank.gif\" ng-hide=\"hasPoster(player.item.art)\"/>\n" +
+    "            </div>\n" +
+    "        </div>\n" +
     "        <h1>{{getLabel(player.item)}}</h1>\n" +
     "        <footer>\n" +
     "            <div class=\"row actions\">\n" +
@@ -3888,7 +3943,7 @@ angular.module("now/playing.tpl.html", []).run(["$templateCache", function($temp
     "\n" +
     "            <div ng-switch-default class=\"detail\">\n" +
     "                <div class=\"row\">\n" +
-    "                    <img class=\"offset1 span10\" source=\"{{library.item.thumbnail | asset:configuration.host.ip}}\"/>\n" +
+    "                    <img class=\"offset1 span10\" source=\"{{library.item.thumbnail | asset:configuration.host}}\"/>\n" +
     "                </div>\n" +
     "                <h1>\n" +
     "                    {{library.item.label}}\n" +
@@ -3976,7 +4031,7 @@ angular.module("now/playlist.tpl.html", []).run(["$templateCache", function($tem
     "                ng-class-odd=\"'odd'\"\n" +
     "                ng-tap=\"xbmc.goTo($index)\">\n" +
     "                    <img class=\"span4 poster\"\n" +
-    "                         source=\"{{item.art | thumb | asset:configuration.host.ip | fallback:'img/backgrounds/low-contrast-128.png'}}\"/>\n" +
+    "                         source=\"{{item.art | thumb | asset:configuration.host | fallback:'img/backgrounds/low-contrast-128.png'}}\"/>\n" +
     "                <div class=\"span8\">\n" +
     "                    <p>{{item.label}}</p>\n" +
     "                    <p ng-show=\"item.duration\">{{item.duration | time | date :'mm:ss'}}</p>\n" +
@@ -4096,11 +4151,18 @@ angular.module("settings/wizard.tpl.html", []).run(["$templateCache", function($
     "            Host IP must be a vild IP address\n" +
     "        </label>\n" +
     "    </p>\n" +
-    "    <p>\n" +
-    "        <label>Api port</label>\n" +
-    "        <input type=\"text\" placeholder=\"Ex : 9090\" required=\"\" ng-model=\"configuration.host.port\" tabindex=\"3\">\n" +
-    "        <button type=\"reset\" class=\"icon-remove\"></button>\n" +
-    "    </p>\n" +
+    "    <div class=\"row\">\n" +
+    "        <p class=\"span6\">\n" +
+    "            <label>Webserver port</label>\n" +
+    "            <input type=\"text\" placeholder=\"Ex : 8080\" required=\"\" ng-model=\"configuration.host.httpPort\" tabindex=\"3\">\n" +
+    "            <button type=\"reset\" class=\"icon-remove\"></button>\n" +
+    "        </p>\n" +
+    "        <p class=\"span6\">\n" +
+    "            <label>Api port</label>\n" +
+    "            <input type=\"text\" placeholder=\"Ex : 9090\" required=\"\" ng-model=\"configuration.host.port\" tabindex=\"3\">\n" +
+    "            <button type=\"reset\" class=\"icon-remove\"></button>\n" +
+    "        </p>\n" +
+    "    </div>\n" +
     "    <button  class=\"recommend\" ng-tap=\"save()\">Save</button>\n" +
     "</form>");
 }]);
@@ -4141,7 +4203,7 @@ angular.module("tvshow/details.tpl.html", []).run(["$templateCache", function($t
     "    <div ng-switch-when=\"true\" class=\"icon-spinner icon-spin icon-large\"></div>\n" +
     "    <div ng-switch-when=\"false\" class=\"tvshow\">\n" +
     "        <img class=\"banner\"\n" +
-    "             source=\"{{library.item.art['tvshow.banner']  | asset:configuration.host.ip | fallback:'img/backgrounds/low-contrast-256.png'}}\"\n" +
+    "             source=\"{{library.item.art['tvshow.banner']  | asset:configuration.host | fallback:'img/backgrounds/low-contrast-256.png'}}\"\n" +
     "             />\n" +
     "\n" +
     "        <div class=\"episode detail\">\n" +
@@ -4149,7 +4211,7 @@ angular.module("tvshow/details.tpl.html", []).run(["$templateCache", function($t
     "                {{library.item.title}}\n" +
     "            </h1>\n" +
     "            <div class=\"row\">\n" +
-    "                <img class=\"offset1 span10\" source=\"{{library.item.thumbnail  | asset:configuration.host.ip}}\"/>\n" +
+    "                <img class=\"offset1 span10\" source=\"{{library.item.thumbnail  | asset:configuration.host}}\"/>\n" +
     "            </div>\n" +
     "            <div class=\"row\">\n" +
     "                 <div class=\"rating\" rating rating-value=\"library.item.rating\" rating-max=\"10\"></div>\n" +
@@ -4169,12 +4231,12 @@ angular.module("tvshow/episodes.tpl.html", []).run(["$templateCache", function($
     "<div ng-switch on=\"loading\" ng-class=\"{loading : loading}\">\n" +
     "    <div ng-switch-when=\"true\" class=\"icon-spinner icon-spin icon-large\"></div>\n" +
     "    <div ng-switch-when=\"false\" class=\"tvshow\">\n" +
-    "        <img class=\"banner\" source=\"{{episodes[0].art['tvshow.banner']  | asset:configuration.host.ip}}\" alt=\"show.title\"/>\n" +
+    "        <img class=\"banner\" source=\"{{episodes[0].art['tvshow.banner']  | asset:configuration.host}}\" alt=\"show.title\"/>\n" +
     "        <ul data-type=\"list\" class=\"view\">\n" +
     "            <li class=\"row episode\" ng-repeat=\"episode in episodes| filter:library.criteria\"\n" +
     "                ng-tap=\"go('/tvshow/' + tvshowid + '/'+season+'/'+episode.episodeid, 'none')\"\n" +
     "                ng-class-odd=\"'odd'\">\n" +
-    "                <img class=\"span4\" source=\"{{episode.thumbnail  | asset:configuration.host.ip}}\"/>\n" +
+    "                <img class=\"span4\" source=\"{{episode.thumbnail  | asset:configuration.host}}\"/>\n" +
     "\n" +
     "                <div class=\"span7\">\n" +
     "                    <p>\n" +
@@ -4206,7 +4268,7 @@ angular.module("tvshow/list.tpl.html", []).run(["$templateCache", function($temp
     "            ng-tap=\"go('/tvshow/' + show.tvshowid, 'none')\"\n" +
     "            ng-class-odd=\"'odd'\">\n" +
     "            <em class=\"playcount\" ng-show=\"show.playcount\">&#10003;</em>\n" +
-    "            <img class=\"banner\" source=\"{{show.art.banner  | asset:configuration.host.ip | fallback:'img/backgrounds/banner.png'}}\" alt=\"show.title\"/>\n" +
+    "            <img class=\"banner\" source=\"{{show.art.banner  | asset:configuration.host | fallback:'img/backgrounds/banner.png'}}\" alt=\"show.title\"/>\n" +
     "\n" +
     "            <div class=\"rating\">\n" +
     "                <em>{{show.rating | number:1}}</em>\n" +
@@ -4228,7 +4290,7 @@ angular.module("tvshow/seasons.tpl.html", []).run(["$templateCache", function($t
     "        <ul data-type=\"list\" class=\"view\">\n" +
     "            <li class=\"row season\" ng-repeat=\"season in seasons | filter:library.criteria\"\n" +
     "                ng-tap=\"go('/tvshow/' + tvshowid + '/' + season.season)\">\n" +
-    "                <img class=\"span4 poster\" source=\"{{season.thumbnail  | asset:configuration.host.ip}}\"/>\n" +
+    "                <img class=\"span4 poster\" source=\"{{season.thumbnail  | asset:configuration.host}}\"/>\n" +
     "\n" +
     "                <div class=\"span8\">\n" +
     "                    <p>\n" +
@@ -4242,7 +4304,7 @@ angular.module("tvshow/seasons.tpl.html", []).run(["$templateCache", function($t
     "            </li>\n" +
     "            <li ng-show=\"!seasons.length\" class=\"empty list\">No item here :'(</li>\n" +
     "        </ul>\n" +
-    "        <div class=\"fanart\" source=\"{{seasons[0].fanart | asset:configuration.host.ip}}\" direction=\"height\"></div>\n" +
+    "        <div class=\"fanart\" source=\"{{seasons[0].fanart | asset:configuration.host}}\" direction=\"height\"></div>\n" +
     "    </div>\n" +
     "\n" +
     "");
